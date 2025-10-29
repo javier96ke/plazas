@@ -1,0 +1,4 @@
+name: mi_app_flask      # Nombre de tu Space
+runtime: python3.11      # Versión de Python que usarás
+src: .                   # Carpeta que contiene tu código
+run: python app.py        # Comando para iniciar tu aplicación

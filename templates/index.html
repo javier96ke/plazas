@@ -1,0 +1,344 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Buscador de Plazas v10.1(Estadistica)</title>
+
+    <!-- CSS externo -->
+    <link rel="stylesheet" href="{{ url_for('static', filename='sty.css') }}">
+</head>
+<body>
+    <div class="container">
+
+        <!-- Contenedor de Alertas -->
+        <div id="alert-container" class="alert-container"></div>
+
+        <!-- Controles de Tema -->
+        <div class="theme-controls">
+            <button class="theme-btn" id="theme-light" title="Modo Claro"></button>
+            <button class="theme-btn" id="theme-dark" title="Modo Oscuro"></button>
+        </div>
+
+        <!-- Pantalla de Bienvenida -->
+        <div id="welcome-screen" class="view">
+            <h1>
+                <img src="{{ url_for('static', filename='tr.png') }}" alt="Logo" class="header-logo"> 
+                Buscador de Plazas
+            </h1>
+            <p>Selecciona un método para encontrar la información que necesitas.</p>
+            <div class="option-cards">
+                <a href="#key-search-view" class="card">
+                    <h3>Búsqueda por Clave de la Plaza</h3>
+                    <p>Si ya conoces la clave única, encuéntrala directamente.</p>
+                </a>
+                <a href="#filter-search-view" class="card">
+                    <h3>Búsqueda por Estado</h3>
+                    <p>Encuentra la plaza paso a paso, seleccionando la ubicación.</p>
+                </a>
+                <a href="#stats-view" class="card">
+                    <h3>Estadísticas </h3>
+                    <p>Visualiza datos generales y métricas del sistema.</p>
+                </a>
+                <a href="#estados-view" class="card">
+                    <h3>Estados con Más Plazas</h3>
+                    <p>Consulta todos los estados de México y sus plazas disponibles.</p>
+                </a>
+            </div>
+        </div>
+
+        <!-- Búsqueda por Clave -->
+        <div id="key-search-view" class="view hidden">
+            <h1>Búsqueda por Clave</h1>
+            <div class="search-container">
+                <div class="search-box">
+                    <input type="text" id="clave-input" placeholder="Escribe la Clave_Plaza aquí...">
+                    <button id="search-by-key-button" class="btn btn-primary">Buscar</button>
+                    <div id="key-loader" class="loader hidden"></div>
+                </div>
+            </div>
+            <a href="#welcome-screen" class="back-button">← Volver al inicio</a>
+        </div>
+
+        <!-- Búsqueda por Filtros -->
+        <div id="filter-search-view" class="view hidden">
+            <h1>Búsqueda por Estado</h1>
+
+            <!-- Barra de Progreso -->
+            <div class="progress-container">
+                <div class="progress-line">
+                    <div class="progress-fill" id="progress-fill" style="width: 20%;"></div>
+                </div>
+                <div class="progress-steps">
+                    <div class="progress-step active" data-step="estado">Estado</div>
+                    <div class="progress-step" data-step="zona">Zona</div>
+                    <div class="progress-step" data-step="municipio">Municipio</div>
+                    <div class="progress-step" data-step="localidad">Localidad</div>
+                    <div class="progress-step" data-step="clave">Plaza</div>
+                </div>
+            </div>
+
+            <!-- Controles de Búsqueda -->
+            <div class="search-controls">
+                <button id="reset-search-button" class="btn btn-secondary">
+                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+                        <path d="M17.65 6.35C16.2 4.9 14.21 4 12 4C7.58 4 4.01 7.58 4.01 12C4.01 16.42 7.58 20 12 20C15.73 20 18.84 17.45 19.73 14H17.65C16.83 16.33 14.61 18 12 18C8.69 18 6 15.31 6 12C6 8.69 8.69 6 12 6C13.66 6 15.14 6.69 16.22 7.78L13 11H20V4L17.65 6.35Z" fill="currentColor"/>
+                    </svg>
+                    Reiniciar Búsqueda
+                </button>
+            </div>
+
+            <div class="search-container" id="filter-cascade-container">
+                <!-- Pasos de selección -->
+                <div class="filter-step" data-step="estado">
+                    <div class="step-indicator active">1</div>
+                    <div class="step-content">
+                        <label for="state-select">Estado</label>
+                        <select id="state-select"><option value="">Cargando...</option></select>
+                    </div>
+                </div>
+                <div class="filter-step hidden" data-step="zona">
+                    <div class="step-indicator">2</div>
+                    <div class="step-content">
+                        <label for="zona-select">Zona</label>
+                        <select id="zona-select" disabled></select>
+                    </div>
+                </div>
+                <div class="filter-step hidden" data-step="municipio">
+                    <div class="step-indicator">3</div>
+                    <div class="step-content">
+                        <label for="municipio-select">Municipio</label>
+                        <select id="municipio-select" disabled></select>
+                    </div>
+                </div>
+                <div class="filter-step hidden" data-step="localidad">
+                    <div class="step-indicator">4</div>
+                    <div class="step-content">
+                        <label for="localidad-select">Localidad</label>
+                        <select id="localidad-select" disabled></select>
+                    </div>
+                </div>
+                <div class="filter-step hidden" data-step="clave">
+                    <div class="step-indicator">5</div>
+                    <div class="step-content">
+                        <label for="clave-select">Clave de Plaza</label>
+                        <select id="clave-select" disabled></select>
+                    </div>
+                </div>
+                
+                <!-- BOTÓN DE BÚSQUEDA MANUAL -->
+                <button id="search-filter-button" class="btn btn-primary" style="margin-top: 1.5rem; display: flex; align-items: center; gap: 0.5rem;">
+                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+                        <path d="M15.5 14H14.71L14.43 13.73C15.41 12.59 16 11.11 16 9.5C16 5.91 13.09 3 9.5 3C5.91 3 3 5.91 3 9.5C3 13.09 5.91 16 9.5 16C11.11 16 12.59 15.41 13.73 14.43L14 14.71V15.5L19 20.49L20.49 19L15.5 14ZM9.5 14C7.01 14 5 11.99 5 9.5C5 7.01 7.01 5 9.5 5C11.99 5 14 7.01 14 9.5C14 11.99 11.99 14 9.5 14Z" fill="currentColor"/>
+                    </svg>
+                    Buscar Plaza
+                </button>
+                
+                <div id="filter-loader" class="loader hidden" style="margin: 1rem auto 0;"></div>
+            </div>
+
+            <a href="#welcome-screen" class="back-button">← Volver al inicio</a>
+        </div>
+
+        <!-- Resultados -->
+        <div id="results-view" class="view hidden">
+            <div id="results-content"></div>
+            <button class="back-button" id="back-to-search-button">← Volver a la búsqueda</button>
+        </div>
+
+        <!-- Estadísticas -->
+        <div id="stats-view" class="view hidden">
+            <h1>Estadísticas y Dashboard</h1>
+            
+            <!-- Estadísticas Principales -->
+            <div class="stats-grid">
+                <div class="stat-card">
+                    <div class="stat-icon">🏢</div>
+                    <span class="stat-label">Total de Plazas</span>
+                    <span class="stat-number" id="total-plazas">0</span>
+                    <div class="stat-description">Plazas registradas en el sistema</div>
+                </div>
+                
+                <div class="stat-card">
+                    <div class="stat-icon">🗺️</div>
+                    <span class="stat-label">Estados con Plazas</span>
+                    <span class="stat-number" id="total-estados">0</span>
+                    <div class="stat-description">Cobertura a nivel nacional</div>
+                </div>
+            </div>
+
+            <!-- Estadísticas de Estados Destacados -->
+            <div class="stats-section">
+                <h2>Estados Destacados</h2>
+                <div class="stats-grid">
+                    <div class="stat-card highlight-card">
+                        <div class="stat-icon">🥇</div>
+                        <span class="stat-label">Estado con Más Plazas</span>
+                        <span class="stat-name" id="estado-mas-plazas-nombre">-</span>
+                        <span class="stat-number" id="estado-mas-plazas-cantidad">0</span>
+                        <div class="stat-description">Mayor presencia en el sistema</div>
+                    </div>
+                    
+                    <div class="stat-card highlight-card">
+                        <div class="stat-icon">📡</div>
+                        <span class="stat-label">Mayor Conectividad</span>
+                        <span class="stat-name" id="estado-mayor-conectividad-nombre">-</span>
+                        <span class="stat-number" id="estado-mayor-conectividad-porcentaje">0%</span>
+                        <div class="stat-description">Porcentaje de conectividad instalada</div>
+                    </div>
+                    
+                    <div class="stat-card highlight-card">
+                        <div class="stat-icon">⚡</div>
+                        <span class="stat-label">Mayor Operación</span>
+                        <span class="stat-name" id="estado-mas-operacion-nombre">-</span>
+                        <span class="stat-number" id="estado-mas-operacion-porcentaje">0%</span>
+                        <div class="stat-description">Plazas en operación activa</div>
+                    </div>
+                    
+                    <div class="stat-card highlight-card">
+                        <div class="stat-icon">⏸️</div>
+                        <span class="stat-label">Mayor Suspensión</span>
+                        <span class="stat-name" id="estado-mas-suspension-nombre">-</span>
+                        <span class="stat-number" id="estado-mas-suspension-porcentaje">0%</span>
+                        <div class="stat-description">Plazas en suspensión temporal</div>
+                    </div>
+
+                    <!-- NUEVOS: Estados Destacados dn -->
+                    <div class="stat-card highlight-card">
+                        <div class="stat-icon">👶</div>
+                        <span class="stat-label">#1 CN Inicial</span>
+                        <span class="stat-name" id="estado-mas-cn-inicial-nombre">-</span>
+                        <span class="stat-number" id="estado-mas-cn-inicial-cantidad">0</span>
+                        <div class="stat-description">Mayor CN Inicial Acumulado</div>
+                    </div>
+                    
+                    <div class="stat-card highlight-card">
+                        <div class="stat-icon">🎒</div>
+                        <span class="stat-label">#1 CN Primaria</span>
+                        <span class="stat-name" id="estado-mas-cn-primaria-nombre">-</span>
+                        <span class="stat-number" id="estado-mas-cn-primaria-cantidad">0</span>
+                        <div class="stat-description">Mayor CN Primaria Acumulado</div>
+                    </div>
+                    
+                    <div class="stat-card highlight-card">
+                        <div class="stat-icon">📚</div>
+                        <span class="stat-label">#1 CN Secundaria</span>
+                        <span class="stat-name" id="estado-mas-cn-secundaria-nombre">-</span>
+                        <span class="stat-number" id="estado-mas-cn-secundaria-cantidad">0</span>
+                        <div class="stat-description">Mayor CN Secundaria Acumulado</div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- NUEVA SECCIÓN: Estadísticas de CN -->
+            <div class="cn-stats-section">
+                <h2>📚 Estadísticas Conclusiones de Nivel (CN)</h2>
+                
+                <!-- Resumen Nacional -->
+                <div id="cn-resumen-cards" class="cn-grid">
+                    <!-- Se llenará dinámicamente -->
+                </div>
+                
+                <!-- Top 5 por categoría -->
+                <div class="cn-top5-grid">
+                    <div class="cn-top5-section">
+                        <h3>🏆 Top 5 Estados - CN Inicial</h3>
+                        <div id="cn-top5-inicial-list" class="top10-grid">
+                            <!-- Se llenará dinámicamente -->
+                        </div>
+                    </div>
+                    
+                    <div class="cn-top5-section">
+                        <h3>🎒 Top 5 Estados - CN Primaria</h3>
+                        <div id="cn-top5-primaria-list" class="top10-grid">
+                            <!-- Se llenará dinámicamente -->
+                        </div>
+                    </div>
+                    
+                    <div class="cn-top5-section">
+                        <h3>📚 Top 5 Estados - CN Secundaria</h3>
+                        <div id="cn-top5-secundaria-list" class="top10-grid">
+                            <!-- Se llenará dinámicamente -->
+                        </div>
+                    </div>
+                </div>
+                
+                <!-- Tabla de todos los estados -->
+                <h3>📋 Datos Detallados por Estado</h3>
+                <div class="cn-table-container">
+                    <table id="cn-estados-table" class="cn-table">
+                        <!-- Se llenará dinámicamente -->
+                    </table>
+                </div>
+                
+                <!-- Top 10 -->
+                <div class="top10-section">
+                    <h3>👑 Top 10 Estados - CN Inicial</h3>
+                    <div id="cn-top10-list" class="top10-grid">
+                        <!-- Se llenará dinámicamente -->
+                    </div>
+                </div>
+            </div>
+
+            <a href="#welcome-screen" class="back-button">← Volver al inicio</a>
+        </div>
+
+        <!-- Estados con Más Plazas -->
+        <div id="estados-view" class="view hidden">
+            <h1>Estados con Más Plazas</h1>
+            
+            <div class="search-container">
+                <div class="states-search-container">
+                    <input type="text" class="states-search-input" id="estados-search-input" 
+                           placeholder="Buscar estado...">
+                </div>
+                
+                <div class="all-states-grid" id="estados-grid">
+                    <!-- Los estados se cargarán aquí dinámicamente -->
+                </div>
+            </div>
+            
+            <a href="#welcome-screen" class="back-button">← Volver al inicio</a>
+        </div>
+
+        <!-- Plazas por Estado -->
+        <div id="plazas-por-estado-view" class="view hidden">
+            <h1 id="plazas-por-estado-title">Plazas del Estado</h1>
+            
+            <div class="search-container">
+                <div class="states-search-container">
+                    <input type="text" class="states-search-input" id="plazas-search-input" 
+                           placeholder="Buscar plaza por clave, municipio o localidad...">
+                </div>
+                
+                <div id="plazas-list-container">
+                    <!-- Las plazas se cargarán aquí dinámicamente -->
+                </div>
+            </div>
+            
+            <a href="#estados-view" class="back-button">← Volver a Estados</a>
+        </div>
+    </div>
+
+    <!-- Pantalla de Carga Global -->
+    <div id="global-loader" class="loader-overlay hidden">
+        <div class="loader-container">
+            <div class="loader-spinner">
+                <div class="spinner-circle"></div>
+                <div class="spinner-circle"></div>
+                <div class="spinner-circle"></div>
+            </div>
+            <div class="loader-content">
+                <h3 class="loader-title">Procesando información</h3>
+                <p class="loader-message">Estamos cargando los datos solicitados, por favor espere...</p>
+                <div class="loader-progress">
+                    <div class="loader-progress-bar"></div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- JS externo -->
+    <script src="{{ url_for('static', filename='main.js') }}"></script>
+</body>
+</html>
