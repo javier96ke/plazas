@@ -5,6 +5,7 @@ import pandas as pd
 import numpy as np
 from flask import Flask, render_template, request, jsonify, send_from_directory, url_for
 from unidecode import unidecode
+from datetime import datetime
 
 # ==============================================================================
 # 1. CONFIGURACIÓN Y LOGGING
@@ -15,7 +16,7 @@ logging.basicConfig(
     datefmt='%Y-%m-%d %H:%M:%S',
     encoding='utf-8'
 )
-handler = RotatingFileHandler('app.log', maxBytes=102400, backupCount=5, encoding='utf-8')
+handler = RotatingFileHandler('app.log', maxBytes=1024000, backupCount=5, encoding='utf-8')
 logging.getLogger().addHandler(handler)
 
 app = Flask(__name__)
@@ -294,6 +295,15 @@ def get_estadisticas():
         # 1️⃣ Estadísticas generales básicas
         # ============================================================
         total_plazas = len(df_plazas)
+        
+        # NUEVO: Contar plazas en operación
+        if 'Situación' in df_plazas.columns:
+            plazas_operacion = len(df_plazas[
+                df_plazas['Situación'].fillna('').astype(str).str.strip().str.upper() == 'EN OPERACIÓN'
+            ])
+        else:
+            plazas_operacion = 0
+        
         total_estados = 0
         estado_mas_plazas = {'nombre': 'N/A', 'cantidad': 0}
         estado_menos_plazas = {'nombre': 'N/A', 'cantidad': 0}
@@ -342,7 +352,7 @@ def get_estadisticas():
                 }
 
         # ============================================================
-        # 4️⃣ Estado con mayor porcentaje de “EN OPERACIÓN” y “SUSPENSIÓN TEMPORAL”
+        # 4️⃣ Estado con mayor porcentaje de "EN OPERACIÓN" y "SUSPENSIÓN TEMPORAL"
         # ============================================================
         if 'Situación' in df_plazas.columns:
             df_sit = df_plazas.copy()
@@ -383,6 +393,7 @@ def get_estadisticas():
         # ============================================================
         return jsonify({
             'totalPlazas': total_plazas,
+            'plazasOperacion': plazas_operacion,  # NUEVO: agregar este campo
             'totalEstados': total_estados,
             'estadoMasPlazas': estado_mas_plazas,
             'estadoMenosPlazas': estado_menos_plazas,
@@ -503,6 +514,98 @@ def busqueda_global():
     
 @app.route('/api/cn_resumen')
 def cn_resumen():
+    """
+    Resumen nacional de CN_Inicial_Acum, CN_Prim_Acum, CN_Sec_Acum:
+    - totales, CN_Total (suma de las 3 categorías)
+    - top 5 estados por CN_Total
+    - plazas en operación por categoría
+    """
+    try:
+        if df_plazas is None or df_plazas.empty:
+            return jsonify({'error': 'No hay datos disponibles'}), 503
+
+        cols = ['CN_Inicial_Acum', 'CN_Prim_Acum', 'CN_Sec_Acum']
+        # verificar existencia
+        missing_cols = [c for c in cols if c not in df_plazas.columns]
+        if missing_cols:
+            return jsonify({'error': 'Faltan columnas', 'faltantes': missing_cols}), 400
+
+        # convertir a num (no destruye df_plazas original)
+        df_tmp = df_plazas.copy()
+        for c in cols:
+            df_tmp[f'__{c}_num'] = pd.to_numeric(df_tmp[c], errors='coerce')
+
+        total_registros = len(df_tmp)
+        resumen_nacional = {}
+        
+        # Calcular CN_Total nacional (suma de las 3 categorías)
+        cn_total_nacional = 0
+        
+        # NUEVO: Calcular plazas en operación por categoría
+        # Primero creamos una máscara para plazas en operación
+        if 'Situación' in df_tmp.columns:
+            mask_operacion = df_tmp['Situación'].fillna('').astype(str).str.strip().str.upper() == 'EN OPERACIÓN'
+        else:
+            mask_operacion = pd.Series([False] * len(df_tmp))
+        
+        for c in cols:
+            colnum = f'__{c}_num'
+            n_nulos = df_tmp[colnum].isna().sum()
+            suma = float(df_tmp[colnum].fillna(0).sum())
+            cn_total_nacional += suma  # Acumular para el total
+            
+            # NUEVO: Calcular plazas en operación para esta categoría
+            # Contamos las plazas que tienen valor en esta categoría CN y están en operación
+            if mask_operacion.any():
+                # Para cada categoría CN, contamos plazas que tienen valor > 0 y están en operación
+                plazas_operacion_cat = len(df_tmp[
+                    mask_operacion & 
+                    (df_tmp[colnum].fillna(0) > 0)
+                ])
+            else:
+                plazas_operacion_cat = 0
+            
+            resumen_nacional[c] = {
+                'total_registros': int(total_registros),
+                'nulos': int(n_nulos),
+                'pct_nulos': round(n_nulos / total_registros * 100, 2) if total_registros>0 else 0.0,
+                'suma': round(suma, 2),
+                'plazasOperacion': int(plazas_operacion_cat)  # NUEVO: agregar plazas en operación por categoría
+            }
+
+        # Agregar CN_Total al resumen
+        # Para CN_Total, las plazas en operación son todas las que están en operación
+        plazas_operacion_total = int(mask_operacion.sum()) if 'Situación' in df_tmp.columns else 0
+        
+        resumen_nacional['CN_Total'] = {
+            'total_registros': int(total_registros),
+            'nulos': 0,  # No aplica para el total
+            'pct_nulos': 0.0,
+            'suma': round(cn_total_nacional, 2),
+            'plazasOperacion': plazas_operacion_total  # NUEVO: total de plazas en operación
+        }
+
+        # Top 5 estados por CN_Total (suma de las 3 categorías)
+        if Config.COLUMNA_ESTADO in df_tmp.columns:
+            # Calcular CN_Total por estado
+            df_tmp['__CN_Total_num'] = (
+                df_tmp['__CN_Inicial_Acum_num'].fillna(0) + 
+                df_tmp['__CN_Prim_Acum_num'].fillna(0) + 
+                df_tmp['__CN_Sec_Acum_num'].fillna(0)
+            )
+            
+            grp = df_tmp.groupby(Config.COLUMNA_ESTADO)['__CN_Total_num'].sum().sort_values(ascending=False)
+            top5 = [{'estado': str(idx), 'suma_CN_Total': float(v)} for idx,v in grp.head(5).items()]
+        else:
+            top5 = []
+
+        return jsonify({
+            'resumen_nacional': resumen_nacional,
+            'top5_estados_por_CN_Total': top5
+        })
+    except Exception as e:
+        logging.error(f"Error en /api/cn_resumen: {e}")
+        return jsonify({'error': 'Error generando resumen CN'}), 500
     """
     Resumen nacional de CN_Inicial_Acum, CN_Prim_Acum, CN_Sec_Acum:
     - totales, CN_Total (suma de las 3 categorías)
@@ -730,6 +833,35 @@ def cn_top5_todos():
     except Exception as e:
         logging.error(f"Error en /api/cn_top5_todos: {e}")
         return jsonify({'error': 'Error generando top5 todas las categorías'}), 500
+
+        # ==============================================================================
+# ENDPOINT PARA FECHA DE ACTUALIZACIÓN
+# ==============================================================================
+@app.route('/api/excel/last-update')
+def get_last_update():
+    """Devuelve la fecha de última modificación del Excel original."""
+    try:
+        if os.path.exists(Config.EXCEL_PATH):
+            timestamp = os.path.getmtime(Config.EXCEL_PATH)
+            last_modified = datetime.fromtimestamp(timestamp)
+            
+            return jsonify({
+                'last_modified': last_modified.isoformat(),
+                'formatted': last_modified.strftime('%d/%m/%Y'),
+                'status': 'success'
+            })
+        else:
+            return jsonify({
+                'last_modified': None,
+                'status': 'archivo_no_encontrado'
+            }), 404
+            
+    except Exception as e:
+        logging.error(f"Error obteniendo fecha de Excel: {e}")
+        return jsonify({
+            'last_modified': None,
+            'status': 'error'
+        }), 500
     
 # ==============================================================================
 # 6. PUNTO DE ENTRADA
