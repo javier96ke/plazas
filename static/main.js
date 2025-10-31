@@ -45,6 +45,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
     // Referencias para Estadísticas Generales
     const totalPlazas = document.getElementById('total-plazas');
+    const plazasOperacion = document.getElementById('plazas-operacion'); 
     const totalEstados = document.getElementById('total-estados');
     const estadoMasPlazasNombre = document.getElementById('estado-mas-plazas-nombre');
     const estadoMasPlazasCantidad = document.getElementById('estado-mas-plazas-cantidad');
@@ -67,7 +68,7 @@ document.addEventListener('DOMContentLoaded', () => {
     const cnTop5SecundariaList = document.getElementById('cn-top5-secundaria-list');
     const cnResumenCards = document.getElementById('cn-resumen-cards');
     const cnEstadosTable = document.getElementById('cn-estados-table');
-    const cnTop10List = document.getElementById('cn-top10-list');
+  
 
     // Estados con más plazas
     const estadosGrid = document.getElementById('estados-grid');
@@ -641,25 +642,24 @@ document.addEventListener('DOMContentLoaded', () => {
             <div class="cn-stats-grid">
     `;
     
-    // Mostrar solo las categorías individuales y el total
-    const categoriasMostrar = ['CN_Inicial_Acum', 'CN_Prim_Acum', 'CN_Sec_Acum', 'CN_Total'];
+   // Mostrar solo las categorías individuales y el total
+const categoriasMostrar = ['CN_Inicial_Acum', 'CN_Prim_Acum', 'CN_Sec_Acum', 'CN_Total'];
+
+categoriasMostrar.forEach(key => {
+    const data = resumen_nacional[key];
+    if (!data) return;
     
-    categoriasMostrar.forEach(key => {
-        const data = resumen_nacional[key];
-        if (!data) return;
-        
-        const nombre = key === 'CN_Total' ? 'CN TOTAL' : key.replace(/_/g, ' ');
-        
-        html += `
-            <div class="cn-stat-item ${key === 'CN_Total' ? 'cn-total-item' : ''}">
-                <span class="cn-stat-label">${nombre}</span>
-                <span class="cn-stat-value">${data.suma.toLocaleString()}</span>
-                <span class="cn-stat-subvalue">Total registros: ${data.total_registros.toLocaleString()}</span>
-            </div>
-        `;
-    });
+    const nombre = key === 'CN_Total' ? 'CN TOTAL' : key.replace(/_/g, ' ');
     
-    html += `</div></div>`;
+    html += `
+        <div class="cn-stat-item ${key === 'CN_Total' ? 'cn-total-item' : ''}">
+            <span class="cn-stat-label">${nombre}</span>
+            <span class="cn-stat-value">${data.suma.toLocaleString()}</span>
+            <span class="cn-stat-subvalue">Plazas en operación: ${data.plazasOperacion.toLocaleString()}</span>
+        </div>
+    `;
+});
+html += `</div></div>`;
     
     // Top 5 estados por CN_Total
     if (top5_estados_por_CN_Total && top5_estados_por_CN_Total.length > 0) {
@@ -852,26 +852,11 @@ const setupSorting = () => {
         tbody.innerHTML = html;
     };
 };
-    const renderTop10CN = () => {
-        if (!cnTop10List || !cnTopEstadosData?.top) return;
-        let html = '';
-        cnTopEstadosData.top.forEach((item, index) => {
-            html += `
-                <div class="top10-item">
-                    <span class="top10-rank">#${index + 1}</span>
-                    <span class="top10-state">${item.estado}</span>
-                    <span class="top10-value">${item.valor.toLocaleString()}</span>
-                </div>
-            `;
-        });
-        cnTop10List.innerHTML = html;
-    };
-
+ 
     const renderEstadisticasCN = () => {
     if (!cnResumenData || !cnPorEstadoData || !cnTopEstadosData) return;
     renderResumenCN(); // Esta es la función modificada
     renderTablaEstadosCN();
-    renderTop10CN();
 };
     const renderEstadosDestacadosCN = (estadosDestacados) => {
         if (!estadosDestacados) return;
@@ -950,6 +935,7 @@ const setupSorting = () => {
             estadisticasData = stats;
 
             if (totalPlazas) totalPlazas.textContent = stats.totalPlazas?.toLocaleString() || '0';
+            if (plazasOperacion) plazasOperacion.textContent = stats.plazasOperacion?.toLocaleString() || '0'; // <-- FUNCIONALIDAD AGREGADA
             if (totalEstados) totalEstados.textContent = stats.totalEstados?.toLocaleString() || '0';
             if (estadoMasPlazasNombre) estadoMasPlazasNombre.textContent = stats.estadoMasPlazas?.nombre || 'N/A';
             if (estadoMasPlazasCantidad) estadoMasPlazasCantidad.textContent = stats.estadoMasPlazas?.cantidad?.toLocaleString() || '0';
@@ -1115,7 +1101,67 @@ const setupSorting = () => {
 
     initApp();
 });
+// ===== FUNCIÓN PARA CARGAR FECHA DE ACTUALIZACIÓN =====
+function loadExcelLastUpdate() {
+    fetch('/api/excel/last-update')
+        .then(response => {
+            if (!response.ok) throw new Error('Error en la respuesta');
+            return response.json();
+        })
+        .then(data => {
+            const updateElement = document.getElementById('update-date');
+            
+            if (data.last_modified && data.status === 'success') {
+                const date = new Date(data.last_modified);
+                const formattedDate = date.toLocaleDateString('es-MX', {
+                    day: '2-digit',
+                    month: '2-digit',
+                    year: 'numeric'
+                });
+                
+                updateElement.textContent = formattedDate;
+                
+                // Hacer más discreto después de 5 segundos
+                setTimeout(() => {
+                    const badge = document.getElementById('excel-update-info');
+                    if (badge) badge.classList.add('minimal');
+                }, 5000);
+                
+            } else {
+                updateElement.textContent = 'No disponible';
+                updateElement.style.color = '#999';
+            }
+        })
+        .catch(error => {
+            console.error('Error cargando fecha de actualización:', error);
+            const updateElement = document.getElementById('update-date');
+            if (updateElement) {
+                updateElement.textContent = 'Error';
+                updateElement.style.color = '#cc0000';
+            }
+        });
+}
 
+// ===== TOGGLE DISCRETO AL HACER CLIC =====
+function setupUpdateBadgeInteractions() {
+    const badge = document.getElementById('excel-update-info');
+    if (badge) {
+        badge.addEventListener('click', function() {
+            this.classList.toggle('minimal');
+        });
+    }
+}
+
+// ===== INICIALIZAR CUANDO LA PÁGINA CARGUE =====
+document.addEventListener('DOMContentLoaded', function() {
+    loadExcelLastUpdate();
+    setupUpdateBadgeInteractions();
+});
+
+// También cargar cuando se cambie de vista (por si acaso)
+document.addEventListener('viewChanged', function() {
+    setTimeout(loadExcelLastUpdate, 1000);
+});
 // Función adicional para cambiar fondos de tema
 (function() {
     const body = document.body;
