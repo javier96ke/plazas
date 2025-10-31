@@ -4,23 +4,18 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Buscador de Plazas v10.1(Estadistica)</title>
-
-    <!-- CSS externo -->
     <link rel="stylesheet" href="{{ url_for('static', filename='sty.css') }}">
 </head>
 <body>
     <div class="container">
 
-        <!-- Contenedor de Alertas -->
         <div id="alert-container" class="alert-container"></div>
 
-        <!-- Controles de Tema -->
         <div class="theme-controls">
             <button class="theme-btn" id="theme-light" title="Modo Claro"></button>
             <button class="theme-btn" id="theme-dark" title="Modo Oscuro"></button>
         </div>
 
-        <!-- Pantalla de Bienvenida -->
         <div id="welcome-screen" class="view">
             <h1>
                 <img src="{{ url_for('static', filename='tr.png') }}" alt="Logo" class="header-logo"> 
@@ -33,21 +28,20 @@
                     <p>Si ya conoces la clave única, encuéntrala directamente.</p>
                 </a>
                 <a href="#filter-search-view" class="card">
-                    <h3>Búsqueda por Estado</h3>
+                    <h3>Búsqueda Avanzada</h3>
                     <p>Encuentra la plaza paso a paso, seleccionando la ubicación.</p>
                 </a>
                 <a href="#stats-view" class="card">
                     <h3>Estadísticas </h3>
-                    <p>Visualiza datos generales y métricas del sistema.</p>
+                    <p>Visualiza datos generales.</p>
                 </a>
                 <a href="#estados-view" class="card">
-                    <h3>Estados con Más Plazas</h3>
+                    <h3>Búsqueda por Estado</h3>
                     <p>Consulta todos los estados de México y sus plazas disponibles.</p>
                 </a>
             </div>
         </div>
 
-        <!-- Búsqueda por Clave -->
         <div id="key-search-view" class="view hidden">
             <h1>Búsqueda por Clave</h1>
             <div class="search-container">
@@ -60,14 +54,12 @@
             <a href="#welcome-screen" class="back-button">← Volver al inicio</a>
         </div>
 
-        <!-- Búsqueda por Filtros -->
         <div id="filter-search-view" class="view hidden">
-            <h1>Búsqueda por Estado</h1>
+            <h1>Búsqueda por Avanzada </h1>
 
-            <!-- Barra de Progreso -->
             <div class="progress-container">
                 <div class="progress-line">
-                    <div class="progress-fill" id="progress-fill" style="width: 20%;"></div>
+                    <div class="progress-fill" id="progress-fill"></div>
                 </div>
                 <div class="progress-steps">
                     <div class="progress-step active" data-step="estado">Estado</div>
@@ -78,7 +70,6 @@
                 </div>
             </div>
 
-            <!-- Controles de Búsqueda -->
             <div class="search-controls">
                 <button id="reset-search-button" class="btn btn-secondary">
                     <svg width="16" height="16" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
@@ -89,7 +80,6 @@
             </div>
 
             <div class="search-container" id="filter-cascade-container">
-                <!-- Pasos de selección -->
                 <div class="filter-step" data-step="estado">
                     <div class="step-indicator active">1</div>
                     <div class="step-content">
@@ -126,7 +116,6 @@
                     </div>
                 </div>
                 
-                <!-- BOTÓN DE BÚSQUEDA MANUAL -->
                 <button id="search-filter-button" class="btn btn-primary" style="margin-top: 1.5rem; display: flex; align-items: center; gap: 0.5rem;">
                     <svg width="16" height="16" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
                         <path d="M15.5 14H14.71L14.43 13.73C15.41 12.59 16 11.11 16 9.5C16 5.91 13.09 3 9.5 3C5.91 3 3 5.91 3 9.5C3 13.09 5.91 16 9.5 16C11.11 16 12.59 15.41 13.73 14.43L14 14.71V15.5L19 20.49L20.49 19L15.5 14ZM9.5 14C7.01 14 5 11.99 5 9.5C5 7.01 7.01 5 9.5 5C11.99 5 14 7.01 14 9.5C14 11.99 11.99 14 9.5 14Z" fill="currentColor"/>
@@ -140,23 +129,21 @@
             <a href="#welcome-screen" class="back-button">← Volver al inicio</a>
         </div>
 
-        <!-- Resultados -->
         <div id="results-view" class="view hidden">
             <div id="results-content"></div>
             <button class="back-button" id="back-to-search-button">← Volver a la búsqueda</button>
         </div>
 
-        <!-- Estadísticas -->
         <div id="stats-view" class="view hidden">
-            <h1>Estadísticas y Dashboard</h1>
+            <h1>Estadísticas</h1>
             
-            <!-- Estadísticas Principales -->
             <div class="stats-grid">
                 <div class="stat-card">
                     <div class="stat-icon">🏢</div>
                     <span class="stat-label">Total de Plazas</span>
                     <span class="stat-number" id="total-plazas">0</span>
-                    <div class="stat-description">Plazas registradas en el sistema</div>
+                    <div class="stat-sub-number" id="plazas-operacion">0 en operación</div>
+                    <div class="stat-description">Plazas en operación</div>
                 </div>
                 
                 <div class="stat-card">
@@ -167,13 +154,12 @@
                 </div>
             </div>
 
-            <!-- Estadísticas de Estados Destacados -->
             <div class="stats-section">
                 <h2>Estados Destacados</h2>
                 <div class="stats-grid">
                     <div class="stat-card highlight-card">
                         <div class="stat-icon">🥇</div>
-                        <span class="stat-label">Estado con Más Plazas</span>
+                        <span class="stat-label">Busqueda por Estado</span>
                         <span class="stat-name" id="estado-mas-plazas-nombre">-</span>
                         <span class="stat-number" id="estado-mas-plazas-cantidad">0</span>
                         <div class="stat-description">Mayor presencia en el sistema</div>
@@ -192,7 +178,7 @@
                         <span class="stat-label">Mayor Operación</span>
                         <span class="stat-name" id="estado-mas-operacion-nombre">-</span>
                         <span class="stat-number" id="estado-mas-operacion-porcentaje">0%</span>
-                        <div class="stat-description">Plazas en operación activa</div>
+                        <div class="stat-description">Plazas en operación </div>
                     </div>
                     
                     <div class="stat-card highlight-card">
@@ -203,7 +189,6 @@
                         <div class="stat-description">Plazas en suspensión temporal</div>
                     </div>
 
-                    <!-- NUEVOS: Estados Destacados dn -->
                     <div class="stat-card highlight-card">
                         <div class="stat-icon">👶</div>
                         <span class="stat-label">#1 CN Inicial</span>
@@ -230,60 +215,42 @@
                 </div>
             </div>
 
-            <!-- NUEVA SECCIÓN: Estadísticas de CN -->
             <div class="cn-stats-section">
                 <h2>📚 Estadísticas Conclusiones de Nivel (CN)</h2>
                 
-                <!-- Resumen Nacional -->
                 <div id="cn-resumen-cards" class="cn-grid">
-                    <!-- Se llenará dinámicamente -->
-                </div>
+                    </div>
                 
-                <!-- Top 5 por categoría -->
                 <div class="cn-top5-grid">
                     <div class="cn-top5-section">
                         <h3>🏆 Top 5 Estados - CN Inicial</h3>
                         <div id="cn-top5-inicial-list" class="top10-grid">
-                            <!-- Se llenará dinámicamente -->
-                        </div>
+                            </div>
                     </div>
                     
                     <div class="cn-top5-section">
                         <h3>🎒 Top 5 Estados - CN Primaria</h3>
                         <div id="cn-top5-primaria-list" class="top10-grid">
-                            <!-- Se llenará dinámicamente -->
-                        </div>
+                            </div>
                     </div>
                     
                     <div class="cn-top5-section">
                         <h3>📚 Top 5 Estados - CN Secundaria</h3>
                         <div id="cn-top5-secundaria-list" class="top10-grid">
-                            <!-- Se llenará dinámicamente -->
-                        </div>
+                            </div>
                     </div>
                 </div>
                 
-                <!-- Tabla de todos los estados -->
                 <h3>📋 Datos Detallados por Estado</h3>
                 <div class="cn-table-container">
                     <table id="cn-estados-table" class="cn-table">
-                        <!-- Se llenará dinámicamente -->
-                    </table>
-                </div>
-                
-                <!-- Top 10 -->
-                <div class="top10-section">
-                    <h3>👑 Top 10 Estados - CN Inicial</h3>
-                    <div id="cn-top10-list" class="top10-grid">
-                        <!-- Se llenará dinámicamente -->
-                    </div>
+                        </table>
                 </div>
             </div>
 
             <a href="#welcome-screen" class="back-button">← Volver al inicio</a>
         </div>
 
-        <!-- Estados con Más Plazas -->
         <div id="estados-view" class="view hidden">
             <h1>Estados con Más Plazas</h1>
             
@@ -294,14 +261,12 @@
                 </div>
                 
                 <div class="all-states-grid" id="estados-grid">
-                    <!-- Los estados se cargarán aquí dinámicamente -->
-                </div>
+                    </div>
             </div>
             
             <a href="#welcome-screen" class="back-button">← Volver al inicio</a>
         </div>
 
-        <!-- Plazas por Estado -->
         <div id="plazas-por-estado-view" class="view hidden">
             <h1 id="plazas-por-estado-title">Plazas del Estado</h1>
             
@@ -312,15 +277,20 @@
                 </div>
                 
                 <div id="plazas-list-container">
-                    <!-- Las plazas se cargarán aquí dinámicamente -->
-                </div>
+                    </div>
             </div>
             
             <a href="#estados-view" class="back-button">← Volver a Estados</a>
         </div>
     </div>
 
-    <!-- Pantalla de Carga Global -->
+    <div id="excel-update-info" class="excel-update-minimal">
+        <span class="update-icon">📅</span>
+        <span class="update-text">Actualizado: </span>
+        <span id="update-date" class="update-date">Cargando...</span>
+    </div>
+
+    <!-- SOLO UN LOADER GLOBAL - EL DUPLICADO HA SIDO ELIMINADO -->
     <div id="global-loader" class="loader-overlay hidden">
         <div class="loader-container">
             <div class="loader-spinner">
@@ -338,7 +308,6 @@
         </div>
     </div>
 
-    <!-- JS externo -->
     <script src="{{ url_for('static', filename='main.js') }}"></script>
 </body>
 </html>
