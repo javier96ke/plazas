@@ -4,6 +4,8 @@ from logging.handlers import RotatingFileHandler
 import pandas as pd
 import numpy as np
 from flask import Flask, render_template, request, jsonify, send_from_directory, url_for
+import json
+from flask import redirect 
 from unidecode import unidecode
 from datetime import datetime
 
@@ -256,25 +258,57 @@ def api_search_plaza():
 # ==============================================================================
 # 4. FUNCIONES AUXILIARES Y SERVIDOR DE ARCHIVOS
 # ==============================================================================
+DRIVE_TREE_FILE = 'drive_tree.json'
+
 def find_image_urls(clave_original: str) -> list:
     """Busca y devuelve las URLs de las imágenes para una clave de plaza."""
-    image_list = []
-    clave_lower = clave_original.strip().lower()
-    if not clave_lower or not os.path.isdir(Config.IMAGES_BASE_PATH):
-        return image_list
     try:
-        for dirpath, _, filenames in os.walk(Config.IMAGES_BASE_PATH):
-            if os.path.basename(dirpath).lower() == clave_lower:
-                for filename in filenames:
-                    if filename.lower().endswith(('.png', '.jpg', '.jpeg', '.gif')):
-                        full_path = os.path.join(dirpath, filename)
-                        relative_path = os.path.relpath(full_path, Config.IMAGES_BASE_PATH)
-                        url = url_for('serve_image', filename=relative_path.replace(os.sep, '/'))
-                        image_list.append(url)
-                return image_list
+        if not os.path.exists(DRIVE_TREE_FILE):
+            logging.warning("Archivo drive_tree.json no encontrado")
+            return []
+        
+        with open(DRIVE_TREE_FILE, 'r', encoding='utf-8') as f:
+            drive_data = json.load(f)
+        
+        clave_lower = clave_original.strip().lower()
+        image_list = []
+        
+        def search_images_in_tree(tree, target_folder):
+            if tree.get('type') == 'folder' and tree.get('name', '').lower() == target_folder:
+                # Encontramos la carpeta, buscar imágenes
+                for child in tree.get('children', []):
+                    if child.get('type') == 'file' and child.get('mimeType', '').startswith('image/'):
+                        # USAR URL DIRECTA DE GOOGLE DRIVE - webContentLink
+                        image_url = child.get('webContentLink')
+                        if image_url:
+                            # Convertir a URL de vista directa (remover parámetros de descarga)
+                            direct_url = image_url.replace('&export=download', '').replace('?usp=drivesdk', '')
+                            image_list.append(direct_url)
+                            logging.info(f"✅ Imagen encontrada: {child.get('name')} -> {direct_url}")
+                        else:
+                            logging.warning(f"⚠️ Imagen sin URL: {child.get('name')}")
+                return True
+            
+            for child in tree.get('children', []):
+                if search_images_in_tree(child, target_folder):
+                    return True
+            return False
+        
+        # Buscar en el árbol
+        found = search_images_in_tree(drive_data['structure'], clave_lower)
+        
+        if not found:
+            logging.warning(f"❌ Carpeta '{clave_lower}' no encontrada en Drive")
+        elif not image_list:
+            logging.warning(f"⚠️ Carpeta '{clave_lower}' encontrada pero sin imágenes")
+        else:
+            logging.info(f"🎉 Encontradas {len(image_list)} imágenes para '{clave_lower}'")
+            
+        return image_list
+        
     except Exception as e:
-        logging.error(f"Error buscando imágenes para '{clave_lower}': {e}")
-    return image_list
+        logging.error(f"❌ Error buscando imágenes en Drive para '{clave_original}': {e}")
+        return []
 
 @app.route('/imagenes/<path:filename>')
 def serve_image(filename: str):
@@ -393,7 +427,7 @@ def get_estadisticas():
         # ============================================================
         return jsonify({
             'totalPlazas': total_plazas,
-            'plazasOperacion': plazas_operacion,  # NUEVO: agregar este campo
+            'plazasOperacion': plazas_operacion,
             'totalEstados': total_estados,
             'estadoMasPlazas': estado_mas_plazas,
             'estadoMenosPlazas': estado_menos_plazas,
@@ -509,9 +543,9 @@ def busqueda_global():
         
         return jsonify(resultados_unicos[:20])
     except Exception as e:
-        logging.error(f"Error en búsqueda global para '{query}': {e}")
+        logging.error(f"Error en búsqueda global: {e}")
         return jsonify({'error': 'Error en búsqueda global'}), 500
-    
+
 @app.route('/api/cn_resumen')
 def cn_resumen():
     """
@@ -525,12 +559,10 @@ def cn_resumen():
             return jsonify({'error': 'No hay datos disponibles'}), 503
 
         cols = ['CN_Inicial_Acum', 'CN_Prim_Acum', 'CN_Sec_Acum']
-        # verificar existencia
         missing_cols = [c for c in cols if c not in df_plazas.columns]
         if missing_cols:
             return jsonify({'error': 'Faltan columnas', 'faltantes': missing_cols}), 400
 
-        # convertir a num (no destruye df_plazas original)
         df_tmp = df_plazas.copy()
         for c in cols:
             df_tmp[f'__{c}_num'] = pd.to_numeric(df_tmp[c], errors='coerce')
@@ -538,11 +570,8 @@ def cn_resumen():
         total_registros = len(df_tmp)
         resumen_nacional = {}
         
-        # Calcular CN_Total nacional (suma de las 3 categorías)
         cn_total_nacional = 0
         
-        # NUEVO: Calcular plazas en operación por categoría
-        # Primero creamos una máscara para plazas en operación
         if 'Situación' in df_tmp.columns:
             mask_operacion = df_tmp['Situación'].fillna('').astype(str).str.strip().str.upper() == 'EN OPERACIÓN'
         else:
@@ -552,12 +581,9 @@ def cn_resumen():
             colnum = f'__{c}_num'
             n_nulos = df_tmp[colnum].isna().sum()
             suma = float(df_tmp[colnum].fillna(0).sum())
-            cn_total_nacional += suma  # Acumular para el total
+            cn_total_nacional += suma
             
-            # NUEVO: Calcular plazas en operación para esta categoría
-            # Contamos las plazas que tienen valor en esta categoría CN y están en operación
             if mask_operacion.any():
-                # Para cada categoría CN, contamos plazas que tienen valor > 0 y están en operación
                 plazas_operacion_cat = len(df_tmp[
                     mask_operacion & 
                     (df_tmp[colnum].fillna(0) > 0)
@@ -570,92 +596,20 @@ def cn_resumen():
                 'nulos': int(n_nulos),
                 'pct_nulos': round(n_nulos / total_registros * 100, 2) if total_registros>0 else 0.0,
                 'suma': round(suma, 2),
-                'plazasOperacion': int(plazas_operacion_cat)  # NUEVO: agregar plazas en operación por categoría
+                'plazasOperacion': int(plazas_operacion_cat)
             }
 
-        # Agregar CN_Total al resumen
-        # Para CN_Total, las plazas en operación son todas las que están en operación
         plazas_operacion_total = int(mask_operacion.sum()) if 'Situación' in df_tmp.columns else 0
         
         resumen_nacional['CN_Total'] = {
             'total_registros': int(total_registros),
-            'nulos': 0,  # No aplica para el total
+            'nulos': 0,
             'pct_nulos': 0.0,
             'suma': round(cn_total_nacional, 2),
-            'plazasOperacion': plazas_operacion_total  # NUEVO: total de plazas en operación
+            'plazasOperacion': plazas_operacion_total
         }
 
-        # Top 5 estados por CN_Total (suma de las 3 categorías)
         if Config.COLUMNA_ESTADO in df_tmp.columns:
-            # Calcular CN_Total por estado
-            df_tmp['__CN_Total_num'] = (
-                df_tmp['__CN_Inicial_Acum_num'].fillna(0) + 
-                df_tmp['__CN_Prim_Acum_num'].fillna(0) + 
-                df_tmp['__CN_Sec_Acum_num'].fillna(0)
-            )
-            
-            grp = df_tmp.groupby(Config.COLUMNA_ESTADO)['__CN_Total_num'].sum().sort_values(ascending=False)
-            top5 = [{'estado': str(idx), 'suma_CN_Total': float(v)} for idx,v in grp.head(5).items()]
-        else:
-            top5 = []
-
-        return jsonify({
-            'resumen_nacional': resumen_nacional,
-            'top5_estados_por_CN_Total': top5
-        })
-    except Exception as e:
-        logging.error(f"Error en /api/cn_resumen: {e}")
-        return jsonify({'error': 'Error generando resumen CN'}), 500
-    """
-    Resumen nacional de CN_Inicial_Acum, CN_Prim_Acum, CN_Sec_Acum:
-    - totales, CN_Total (suma de las 3 categorías)
-    - top 5 estados por CN_Total
-    """
-    try:
-        if df_plazas is None or df_plazas.empty:
-            return jsonify({'error': 'No hay datos disponibles'}), 503
-
-        cols = ['CN_Inicial_Acum', 'CN_Prim_Acum', 'CN_Sec_Acum']
-        # verificar existencia
-        missing_cols = [c for c in cols if c not in df_plazas.columns]
-        if missing_cols:
-            return jsonify({'error': 'Faltan columnas', 'faltantes': missing_cols}), 400
-
-        # convertir a num (no destruye df_plazas original)
-        df_tmp = df_plazas.copy()
-        for c in cols:
-            df_tmp[f'__{c}_num'] = pd.to_numeric(df_tmp[c], errors='coerce')
-
-        total_registros = len(df_tmp)
-        resumen_nacional = {}
-        
-        # Calcular CN_Total nacional (suma de las 3 categorías)
-        cn_total_nacional = 0
-        
-        for c in cols:
-            colnum = f'__{c}_num'
-            n_nulos = df_tmp[colnum].isna().sum()
-            suma = float(df_tmp[colnum].fillna(0).sum())
-            cn_total_nacional += suma  # Acumular para el total
-            
-            resumen_nacional[c] = {
-                'total_registros': int(total_registros),
-                'nulos': int(n_nulos),
-                'pct_nulos': round(n_nulos / total_registros * 100, 2) if total_registros>0 else 0.0,
-                'suma': round(suma, 2)
-            }
-
-        # Agregar CN_Total al resumen
-        resumen_nacional['CN_Total'] = {
-            'total_registros': int(total_registros),
-            'nulos': 0,  # No aplica para el total
-            'pct_nulos': 0.0,
-            'suma': round(cn_total_nacional, 2)
-        }
-
-        # Top 5 estados por CN_Total (suma de las 3 categorías)
-        if Config.COLUMNA_ESTADO in df_tmp.columns:
-            # Calcular CN_Total por estado
             df_tmp['__CN_Total_num'] = (
                 df_tmp['__CN_Inicial_Acum_num'].fillna(0) + 
                 df_tmp['__CN_Prim_Acum_num'].fillna(0) + 
@@ -694,13 +648,11 @@ def cn_por_estado():
         for c in cols:
             df_tmp[f'__{c}_num'] = pd.to_numeric(df_tmp[c], errors='coerce')
 
-        # Calcular totales nacionales para cada categoría
         nacional_totales = {
             c: float(df_tmp[f'__{c}_num'].fillna(0).sum())
             for c in cols
         }
         
-        # Calcular CN_TOTAL a nivel nacional (suma de las 3 categorías)
         cn_total_nacional = sum(nacional_totales.values())
 
         estados_summary = []
@@ -710,10 +662,9 @@ def cn_por_estado():
             s_inicial = float(g['__CN_Inicial_Acum_num'].fillna(0).sum())
             s_prim = float(g['__CN_Prim_Acum_num'].fillna(0).sum())
             s_sec = float(g['__CN_Sec_Acum_num'].fillna(0).sum())
-            s_total = s_inicial + s_prim + s_sec  # CN_TOTAL del estado
+            s_total = s_inicial + s_prim + s_sec
             mean_inicial = float(g['__CN_Inicial_Acum_num'].dropna().mean()) if g['__CN_Inicial_Acum_num'].dropna().shape[0]>0 else 0.0
 
-            # Calcular % sobre nacional basado en CN_TOTAL
             pct_sobre_nacional = round((s_total / cn_total_nacional * 100), 2) if cn_total_nacional > 0 else 0.0
 
             estados_summary.append({
@@ -736,7 +687,6 @@ def cn_por_estado():
     except Exception as e:
         logging.error(f"Error en /api/cn_por_estado: {e}")
         return jsonify({'error': 'Error generando CN por estado'}), 500
-
 
 @app.route('/api/cn_top_estados')
 def cn_top_estados():
@@ -768,10 +718,9 @@ def cn_top_estados():
         logging.error(f"Error en /api/cn_top_estados: {e}")
         return jsonify({'error': 'Error generando top CN estados'}), 500
 
-
 @app.route('/api/cn_estados_destacados')
 def cn_estados_destacados():
-    """Devuelve los estados #1 en cada categoría de cn """
+    """Devuelve los estados #1 en cada categoría de cn"""
     try:
         if df_plazas is None or df_plazas.empty:
             return jsonify({'error': 'No hay datos disponibles'}), 503
@@ -787,7 +736,6 @@ def cn_estados_destacados():
 
         estados_destacados = {}
         
-        # Encontrar el estado #1 para cada categoría
         for c in cols:
             colnum = f'__{c}_num'
             if Config.COLUMNA_ESTADO in df_tmp.columns:
@@ -803,7 +751,6 @@ def cn_estados_destacados():
     except Exception as e:
         logging.error(f"Error en /api/cn_estados_destacados: {e}")
         return jsonify({'error': 'Error generando estados destacados CN'}), 500
-
 
 @app.route('/api/cn_top5_todos')
 def cn_top5_todos():
@@ -834,8 +781,8 @@ def cn_top5_todos():
         logging.error(f"Error en /api/cn_top5_todos: {e}")
         return jsonify({'error': 'Error generando top5 todas las categorías'}), 500
 
-        # ==============================================================================
-# ENDPOINT PARA FECHA DE ACTUALIZACIÓN
+# ==============================================================================
+# 6. ENDPOINT PARA FECHA DE ACTUALIZACIÓN
 # ==============================================================================
 @app.route('/api/excel/last-update')
 def get_last_update():
@@ -862,9 +809,71 @@ def get_last_update():
             'last_modified': None,
             'status': 'error'
         }), 500
-    
+
 # ==============================================================================
-# 6. PUNTO DE ENTRADA
+# 7. ENDPOINTS PARA GOOGLE DRIVE
+# ==============================================================================
+@app.route('/api/drive-tree')
+def get_drive_tree():
+    """Sirve el árbol de Google Drive generado"""
+    try:
+        if not os.path.exists(DRIVE_TREE_FILE):
+            return jsonify({'error': 'El árbol de Drive no está disponible', 'status': 'not_generated'}), 503
+        
+        with open(DRIVE_TREE_FILE, 'r', encoding='utf-8') as f:
+            drive_data = json.load(f)
+        
+        generated_at = datetime.fromisoformat(drive_data['generated_at'])
+        if (datetime.now() - generated_at).days > 16:
+            return jsonify({
+                'error': 'El árbol de Drive está desactualizado',
+                'last_update': drive_data['generated_at'],
+                'status': 'stale'
+            }), 503
+        
+        return jsonify(drive_data)
+        
+    except Exception as e:
+        logging.error(f"Error cargando árbol de Drive: {e}")
+        return jsonify({'error': 'Error al cargar el árbol de Drive'}), 500
+
+@app.route('/api/drive-image/<path:image_path>')
+def serve_drive_image(image_path):
+    """Redirige a imágenes de Google Drive"""
+    try:
+        if not os.path.exists(DRIVE_TREE_FILE):
+            return jsonify({'error': 'Árbol de Drive no disponible'}), 503
+        
+        with open(DRIVE_TREE_FILE, 'r', encoding='utf-8') as f:
+            drive_data = json.load(f)
+        
+        def find_file_in_tree(tree, target_path):
+            if tree.get('type') == 'file' and tree.get('path') == target_path:
+                return tree
+            for child in tree.get('children', []):
+                result = find_file_in_tree(child, target_path)
+                if result:
+                    return result
+            return None
+        
+        file_info = find_file_in_tree(drive_data['structure'], image_path)
+        
+        if not file_info:
+            return jsonify({'error': 'Imagen no encontrada en Drive'}), 404
+        
+        file_id = file_info.get('id')
+        if file_id:
+            download_url = f"https://drive.google.com/uc?id={file_id}&export=download"
+            return redirect(download_url)
+        else:
+            return jsonify({'error': 'URL de imagen no disponible'}), 404
+        
+    except Exception as e:
+        logging.error(f"Error sirviendo imagen de Drive: {e}")
+        return jsonify({'error': 'Error al cargar imagen'}), 500
+
+# ==============================================================================
+# 8. PUNTO DE ENTRADA
 # ==============================================================================
 if __name__ == '__main__':
     if df_plazas is None:
