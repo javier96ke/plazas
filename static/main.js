@@ -56,7 +56,7 @@ document.addEventListener('DOMContentLoaded', () => {
     const estadoMasSuspensionNombre = document.getElementById('estado-mas-suspension-nombre');
     const estadoMasSuspensionPorcentaje = document.getElementById('estado-mas-suspension-porcentaje');
 
-    // Referencias para Estadísticas  (CN)
+    // Referencias para Estadísticas (CN)
     const estadoMasCNInicialNombre = document.getElementById('estado-mas-cn-inicial-nombre');
     const estadoMasCNInicialCantidad = document.getElementById('estado-mas-cn-inicial-cantidad');
     const estadoMasCNPrimariaNombre = document.getElementById('estado-mas-cn-primaria-nombre');
@@ -68,7 +68,7 @@ document.addEventListener('DOMContentLoaded', () => {
     const cnTop5SecundariaList = document.getElementById('cn-top5-secundaria-list');
     const cnResumenCards = document.getElementById('cn-resumen-cards');
     const cnEstadosTable = document.getElementById('cn-estados-table');
-  
+    const cnEstadosTbody = document.getElementById('cn-estados-tbody');
 
     // Estados con más plazas
     const estadosGrid = document.getElementById('estados-grid');
@@ -91,6 +91,9 @@ document.addEventListener('DOMContentLoaded', () => {
     let cnEstadosDestacadosData = null;
     let cnTop5TodosData = null;
 
+    // --- SISTEMA DE MODAL PARA IMÁGENES ---
+    let modalOpenFunction = null;
+
     // --- SISTEMA DE TEMA ---
     const themeLight = document.getElementById('theme-light');
     const themeDark = document.getElementById('theme-dark');
@@ -98,6 +101,14 @@ document.addEventListener('DOMContentLoaded', () => {
     const applyTheme = (theme) => {
         document.documentElement.setAttribute('data-theme', theme);
         localStorage.setItem('theme', theme);
+        
+        if (theme === 'dark') {
+            document.body.style.backgroundImage = "url('/static/noche.jpg')";
+        } else {
+            document.body.style.backgroundImage = "url('/static/claro.jpg')";
+        }
+        document.body.style.backgroundSize = "cover";
+        
         setTimeout(() => {
             const estadosView = document.getElementById('estados-view');
             const plazasView = document.getElementById('plazas-por-estado-view');
@@ -165,7 +176,7 @@ document.addEventListener('DOMContentLoaded', () => {
         if (viewId === 'stats-view') {
             if (!estadisticasData) {
                 cargarEstadisticas();
-            } else if (!cnResumenData) { // En caso de que la carga de CN haya fallado
+            } else if (!cnResumenData) {
                 cargarEstadisticasCompletasCN();
             }
         }
@@ -177,6 +188,13 @@ document.addEventListener('DOMContentLoaded', () => {
     
     const handleNavigation = () => {
         const viewId = window.location.hash.substring(1) || 'welcome-screen';
+        
+        if (!views[viewId]) {
+            console.warn(`Vista no encontrada: ${viewId}`);
+            showView('welcome-screen');
+            return;
+        }
+        
         showView(viewId);
     };
     
@@ -201,12 +219,16 @@ document.addEventListener('DOMContentLoaded', () => {
     const setLoaderVisible = (loader, visible) => loader.classList.toggle('hidden', !visible);
     
     const showAlert = (message, type = 'info') => {
-        const alertClass = type === 'error' ? 'alert' :
-                             type === 'success' ? 'alert success' :
-                             type === 'warning' ? 'alert warning' :
-                             'alert info';
+        const alertDiv = document.createElement('div');
+        alertDiv.className = type === 'error' ? 'alert' :
+                           type === 'success' ? 'alert success' :
+                           type === 'warning' ? 'alert warning' :
+                           'alert info';
+        alertDiv.textContent = message;
         
-        alertContainer.innerHTML = `<div class="${alertClass}">${message}</div>`;
+        alertContainer.innerHTML = '';
+        alertContainer.appendChild(alertDiv);
+        
         setTimeout(() => {
             alertContainer.innerHTML = '';
         }, 5000);
@@ -238,69 +260,238 @@ document.addEventListener('DOMContentLoaded', () => {
         cache.set(url, result);
         return result;
     };
-    
-    // --- RENDERIZADO DE RESULTADOS ---
+
+    // Función auxiliar para buscar imágenes locales (fallback)
+    const buscarImagenesLocales = async (clave_lower) => {
+        try {
+            console.log(`🔄 Buscando imágenes locales para: ${clave_lower}`);
+            const response = await fetch(`/api/imagenes-local?clave=${encodeURIComponent(clave_lower)}`);
+            if (response.ok) {
+                const imagenesLocales = await response.json();
+                if (imagenesLocales.length > 0) {
+                    console.log(`📸 ${imagenesLocales.length} imágenes locales encontradas`);
+                    return imagenesLocales;
+                }
+            }
+            return [];
+        } catch (error) {
+            console.error('❌ Error en búsqueda local de imágenes:', error);
+            return [];
+        }
+    };
+
+    // ==== FUNCIÓN ACTUALIZADA PARA GOOGLE DRIVE ====
+    const find_image_urls = async (clave_original) => {
+        try {
+            console.log(`🔍 Buscando imágenes para clave: ${clave_original}`);
+            
+            const clave_lower = clave_original.trim().toLowerCase();
+            if (!clave_lower) return [];
+            
+            const driveTreeResponse = await fetch('/api/drive-tree');
+            if (!driveTreeResponse.ok) {
+                console.warn('❌ No se pudo cargar el árbol de Drive');
+                return await buscarImagenesLocales(clave_lower);
+            }
+            
+            const driveData = await driveTreeResponse.json();
+            const imagenesEncontradas = [];
+            
+            function buscarEnArbol(arbol, carpetaTarget) {
+                if (arbol.type === 'folder' && arbol.name.toLowerCase() === carpetaTarget) {
+                    console.log(`✅ Carpeta encontrada: ${arbol.name} con ${arbol.children?.length || 0} elementos`);
+                    
+                    arbol.children?.forEach(archivo => {
+                        if (archivo.type === 'file') {
+                            let imageUrl = archivo.mediumUrl || 
+                                          archivo.thumbnailUrl || 
+                                          archivo.directUrl;
+                            
+                            if (imageUrl) {
+                                imagenesEncontradas.push(imageUrl);
+                                console.log(`📸 ${archivo.name}`);
+                                console.log(`   📏 Tamaño: ${archivo.size} bytes`);
+                                console.log(`   🔗 URL: ${imageUrl}`);
+                            }
+                        }
+                    });
+                    return true;
+                }
+                
+                if (arbol.children) {
+                    for (const hijo of arbol.children) {
+                        if (buscarEnArbol(hijo, carpetaTarget)) return true;
+                    }
+                }
+                return false;
+            }
+            
+            const encontrado = buscarEnArbol(driveData.structure, clave_lower);
+            
+            if (encontrado && imagenesEncontradas.length > 0) {
+                console.log(`🎉 ${imagenesEncontradas.length} imágenes encontradas para "${clave_lower}"`);
+                return imagenesEncontradas;
+            } else {
+                console.warn(`⚠️ No hay imágenes en Drive para "${clave_lower}"`);
+                return await buscarImagenesLocales(clave_lower);
+            }
+            
+        } catch (error) {
+            console.error('❌ Error en búsqueda de imágenes:', error);
+            return await buscarImagenesLocales(clave_original.trim().toLowerCase());
+        }
+    };
+
+    // --- RENDERIZADO DE RESULTADOS ACTUALIZADO ---
     const renderPlazaResultados = (data) => {
         const { excel_info, images, google_maps_url, direccion_completa } = data;
-        const mapHtml = google_maps_url ? `<a href="${google_maps_url}" target="_blank" class="btn btn-primary" rel="noopener noreferrer">Ver en Google Maps</a>` : '';
-        const direccionHtml = direccion_completa ? `<div class="direccion-completa"><strong>Dirección:</strong> ${direccion_completa}</div>` : '';
+        
+        const template = document.getElementById('plaza-results-template');
+        const clone = template.content.cloneNode(true);
+        
+        const clavePlazaElement = clone.querySelector('[data-bind="clave_plaza"]');
+        if (clavePlazaElement && excel_info.Clave_Plaza) {
+            clavePlazaElement.textContent = excel_info.Clave_Plaza;
+        }
+        
+        const direccionElement = clone.querySelector('[data-bind="direccion_completa"]');
+        if (direccionElement && direccion_completa) {
+            const strong = document.createElement('strong');
+            strong.textContent = 'Dirección:';
+            direccionElement.innerHTML = '';
+            direccionElement.appendChild(strong);
+            direccionElement.appendChild(document.createTextNode(` ${direccion_completa}`));
+        } else if (direccionElement) {
+            direccionElement.style.display = 'none';
+        }
+        
+        const mapsLink = clone.querySelector('[data-bind="google_maps_url"]');
+        if (mapsLink && google_maps_url) {
+            mapsLink.href = google_maps_url;
+            mapsLink.textContent = 'Ver en Google Maps';
+        } else if (mapsLink) {
+            mapsLink.style.display = 'none';
+        }
+        
+        const generateGridContent = (container, info, columns) => {
+            container.innerHTML = '';
+            columns.forEach(key => {
+                const displayKey = key.replace(/_/g, ' ');
+                const value = info[key];
+                const p = document.createElement('p');
+                const strong = document.createElement('strong');
+                strong.textContent = `${displayKey}:`;
+                p.appendChild(strong);
+                p.appendChild(document.createTextNode(` ${value !== null && value !== undefined ? value : 'N/A'}`));
+                container.appendChild(p);
+            });
+        };
 
+        const gridUbicacionElement = clone.querySelector('[data-bind="grid_ubicacion"]');
+        const gridUsoElement = clone.querySelector('[data-bind="grid_uso"]');
+        const gridInventarioElement = clone.querySelector('[data-bind="grid_inventario"]');
+        
         const columnasUbicacion = ['Estado', 'Coord. Zona', 'Municipio', 'Localidad', 'Colonia', 'Cod_Post', 'Calle', 'Num', 'Clave_Plaza', 'Nombre_PC', 'Situación', 'Latitud', 'Longitud'];
         const columnasUso = ['Aten_Ult_mes', 'CN_Inicial_Acum', 'CN_Prim_Acum', 'CN_Sec_Acum', 'CN_Tot_Acum', 'Tipo_local', 'Inst_aliada', 'Arq_Discap.', 'Conect_Instalada', 'Tipo_Conect'];
         const columnasInventario = ['Total de equipos de cómputo en la plaza', 'Equipos de cómputo que operan', 'Tipos de equipos de cómputo', 'Impresoras que funcionan', 'Impresoras con suministros (toner, hojas)', 'Total de servidores en la plaza', 'Número de servidores que funcionan correctamente', 'Cuantas mesas funcionan', 'Cuantas sillas funcionan', 'Cuantos Anaqueles funcionan'];
 
-        const generateGridHtml = (info, columns) => {
-            return columns.map(key => {
-                const displayKey = key.replace(/_/g, ' ');
-                const value = info[key];
-                return `<p><strong>${displayKey}:</strong> ${value !== null && value !== undefined ? value : '<em>N/A</em>'}</p>`;
-            }).join('');
-        };
-
-        const gridUbicacionHtml = generateGridHtml(excel_info, columnasUbicacion);
-        const gridUsoHtml = generateGridHtml(excel_info, columnasUso);
-        const gridInventarioHtml = generateGridHtml(excel_info, columnasInventario);
+        if (gridUbicacionElement) {
+            generateGridContent(gridUbicacionElement, excel_info, columnasUbicacion);
+        }
         
-        const imagesHtml = images?.length > 0 ?
-            images.map(url =>
-                `<img src="${url}" alt="Imagen de la plaza" loading="lazy" onclick="window.open('${url}', '_blank')">`
-            ).join('') :
-            '<p>No se encontraron imágenes.</p>';
+        if (gridUsoElement) {
+            generateGridContent(gridUsoElement, excel_info, columnasUso);
+        }
         
-        resultsContent.innerHTML = `
-            <h1>${excel_info.Clave_Plaza || 'Detalles de la Plaza'}</h1>
-            <div class="results-card">${direccionHtml}<div style="text-align:center; margin: 1.5rem 0;">${mapHtml}</div></div>
+        if (gridInventarioElement) {
+            generateGridContent(gridInventarioElement, excel_info, columnasInventario);
+        }
+        
+        const imagesContainer = clone.querySelector('[data-bind="images_grid"]');
+        if (imagesContainer) {
+            imagesContainer.innerHTML = '';
             
-            <div class="results-card">
-                <h2>Ubicación y Datos Generales</h2>
-                <div class="info-grid info-grid-ubicacion">${gridUbicacionHtml}</div>
-            </div>
+            if (images?.length > 0) {
+                const imageTemplate = document.getElementById('image-item-template');
+                
+                images.forEach((url, index) => {
+                    const imageClone = imageTemplate.content.cloneNode(true);
+                    const img = imageClone.querySelector('img');
+                    img.src = url;
+                    img.alt = `Imagen de la plaza ${index + 1}`;
+                    
+                    imagesContainer.appendChild(imageClone);
+                });
+            } else {
+                const noImagesTemplate = document.getElementById('no-images-template');
+                const noImagesClone = noImagesTemplate.content.cloneNode(true);
+                imagesContainer.appendChild(noImagesClone);
+            }
+        }
+        
+        resultsContent.innerHTML = '';
+        resultsContent.appendChild(clone);
+        
+        setTimeout(() => {
+            const imageContainers = document.querySelectorAll('.image-container');
+            const allImages = images || [];
             
-            <div class="results-card">
-                <h2>Atención-productividad-Tipo</h2>
-                <div class="info-grid info-grid-uso">${gridUsoHtml}</div>
-            </div>
-            
-            <div class="results-card">
-                <h2>Inventario de Equipos</h2>
-                <div class="info-grid info-grid-inventario">${gridInventarioHtml}</div>
-            </div>
-
-            <div class="results-card"><h2>Imágenes</h2><div id="images-container">${imagesHtml}</div></div>`;
+            imageContainers.forEach((container, index) => {
+                container.style.cursor = 'pointer';
+                container.replaceWith(container.cloneNode(true));
+                
+                const newContainer = document.querySelectorAll('.image-container')[index];
+                newContainer.addEventListener('click', () => {
+                    if (allImages.length > 0 && modalOpenFunction) {
+                        modalOpenFunction(allImages, index);
+                    }
+                });
+            });
+        }, 100);
+        
+        setTimeout(() => {
+            const images = document.querySelectorAll('.plaza-image');
+            console.log(`🔍 Verificando ${images.length} imágenes...`);
+            images.forEach((img, index) => {
+                if (!img.complete || img.naturalHeight === 0) {
+                    console.warn(`❌ Imagen ${index} no se cargó:`, img.src);
+                } else {
+                    console.log(`✅ Imagen ${index} cargada correctamente`);
+                }
+            });
+        }, 1000);
     };
 
     // --- BÚSQUEDA Y FILTROS ---
     const buscarYMostrarClave = async (clave, loader) => {
-        if (!clave) return;
+        if (!clave) {
+            showAlert('Por favor, introduce una clave válida', 'warning');
+            return;
+        }
         
         showLoader(`Buscando plaza con clave: ${clave}`);
         
         try {
             const data = await fetchData(`/api/search?clave=${encodeURIComponent(clave)}`);
-            renderPlazaResultados(data);
+            
+            if (!data || !data.excel_info) {
+                throw new Error('No se encontraron datos para esta clave');
+            }
+            
+            console.log(`🔄 Buscando imágenes para: ${clave}`);
+            const imagenesDrive = await find_image_urls(clave);
+            
+            const datosCompletos = {
+                ...data,
+                images: imagenesDrive.length > 0 ? imagenesDrive : (data.images || [])
+            };
+            
+            renderPlazaResultados(datosCompletos);
             history.pushState({ view: 'results-view' }, '', '#results-view');
             handleNavigation();
+            
         } catch (error) {
+            console.error('Error en búsqueda:', error);
             showAlert(`Error al buscar la clave: ${error.message}`, 'error');
         } finally {
             hideLoader();
@@ -319,20 +510,44 @@ document.addEventListener('DOMContentLoaded', () => {
     
     const populateSelect = async (selectElement, url, placeholder) => {
         selectElement.disabled = true;
-        selectElement.innerHTML = `<option value="">Cargando...</option>`;
+        
+        const loadingOption = document.createElement('option');
+        loadingOption.value = '';
+        loadingOption.textContent = 'Cargando...';
+        selectElement.innerHTML = '';
+        selectElement.appendChild(loadingOption);
+        
         setLoaderVisible(filterLoader, true);
         try {
             const options = await fetchData(url);
-            selectElement.innerHTML = `<option value="">-- ${placeholder} --</option>`;
+            selectElement.innerHTML = '';
+            
+            const defaultOption = document.createElement('option');
+            defaultOption.value = '';
+            defaultOption.textContent = `-- ${placeholder} --`;
+            selectElement.appendChild(defaultOption);
+            
             if (options.length > 0) {
-                options.forEach(option => selectElement.innerHTML += `<option value="${option}">${option}</option>`);
+                options.forEach(option => {
+                    const optionElement = document.createElement('option');
+                    optionElement.value = option;
+                    optionElement.textContent = option;
+                    selectElement.appendChild(optionElement);
+                });
                 selectElement.disabled = false;
             } else {
-                selectElement.innerHTML = `<option value="">No hay opciones</option>`;
+                const noOptions = document.createElement('option');
+                noOptions.value = '';
+                noOptions.textContent = 'No hay opciones';
+                selectElement.appendChild(noOptions);
             }
         } catch (error) {
             showAlert(`Error al cargar: ${error.message}`, 'error');
-            selectElement.innerHTML = `<option value="">Error</option>`;
+            const errorOption = document.createElement('option');
+            errorOption.value = '';
+            errorOption.textContent = 'Error';
+            selectElement.innerHTML = '';
+            selectElement.appendChild(errorOption);
         } finally {
             setLoaderVisible(filterLoader, false);
         }
@@ -350,7 +565,6 @@ document.addEventListener('DOMContentLoaded', () => {
         }
     };
 
-    // ==== FUNCIÓN MEJORADA: NAVEGACIÓN AUTOMÁTICA ENTRE PASOS ====
     const navigateToNextStep = (currentStepName) => {
         const stepOrder = ['estado', 'zona', 'municipio', 'localidad', 'clave'];
         const currentStepIndex = stepOrder.indexOf(currentStepName);
@@ -462,7 +676,6 @@ document.addEventListener('DOMContentLoaded', () => {
         }, 800);
     };
 
-    // ==== CONFIGURACIÓN MEJORADA DE LA BARRA DE PROGRESO ====
     const setupProgressBarNavigation = () => {
         progressSteps.forEach(step => {
             const newStep = step.cloneNode(true);
@@ -495,7 +708,6 @@ document.addEventListener('DOMContentLoaded', () => {
         });
     };
 
-    // ==== FUNCIÓN PARA BÚSQUEDA MANUAL CON FILTROS ====
     const handleFilterSearch = () => {
         const clave = selects.clave.value;
         if (clave) {
@@ -505,7 +717,6 @@ document.addEventListener('DOMContentLoaded', () => {
         }
     };
 
-    // ==== FUNCIÓN PARA BÚSQUEDA POR CLAVE ====
     const handleSearchByKey = () => {
         const clave = claveInput.value.trim();
         if (clave) {
@@ -515,23 +726,34 @@ document.addEventListener('DOMContentLoaded', () => {
         }
     };
     
-    // ==== FUNCIÓN OPCIONAL: TOGGLE PARA AUTO-BÚSQUEDA ====
     const addAutoSearchToggle = () => {
         const searchButton = document.getElementById('search-filter-button');
         if (!searchButton) return;
         
-        const toggleHtml = `
-            <div class="auto-search-toggle" style="margin: 1rem 0; display: flex; align-items: center; gap: 0.5rem;">
-                <input type="checkbox" id="auto-search-toggle" style="margin: 0;">
-                <label for="auto-search-toggle" style="font-size: 0.875rem; color: var(--text-muted); cursor: pointer;">
-                    Búsqueda automática al seleccionar clave
-                </label>
-            </div>
-        `;
-        searchButton.insertAdjacentHTML('beforebegin', toggleHtml);
+        const toggleContainer = document.createElement('div');
+        toggleContainer.className = 'auto-search-toggle';
+        toggleContainer.style.margin = '1rem 0';
+        toggleContainer.style.display = 'flex';
+        toggleContainer.style.alignItems = 'center';
+        toggleContainer.style.gap = '0.5rem';
+        
+        const checkbox = document.createElement('input');
+        checkbox.type = 'checkbox';
+        checkbox.id = 'auto-search-toggle';
+        checkbox.style.margin = '0';
+        
+        const label = document.createElement('label');
+        label.htmlFor = 'auto-search-toggle';
+        label.style.fontSize = '0.875rem';
+        label.style.color = 'var(--text-muted)';
+        label.style.cursor = 'pointer';
+        label.textContent = 'Búsqueda automática al seleccionar clave';
+        
+        toggleContainer.appendChild(checkbox);
+        toggleContainer.appendChild(label);
+        searchButton.insertAdjacentElement('beforebegin', toggleContainer);
     };
 
-    // ==== SISTEMA DE NAVEGACIÓN POR TECLADO ====
     const setupKeyboardNavigation = () => {
         Object.values(selects).forEach((select) => {
             if (select) {
@@ -632,232 +854,280 @@ document.addEventListener('DOMContentLoaded', () => {
     // --- LÓGICA DE ESTADÍSTICAS ---
 
     const renderResumenCN = () => {
-    if (!cnResumenCards || !cnResumenData?.resumen_nacional) return;
-    
-    const { resumen_nacional, top5_estados_por_CN_Total } = cnResumenData;
-    
-    let html = `
-        <div class="cn-card">
-            <h4>📊 Resumen Nacional</h4>
-            <div class="cn-stats-grid">
-    `;
-    
-   // Mostrar solo las categorías individuales y el total
-const categoriasMostrar = ['CN_Inicial_Acum', 'CN_Prim_Acum', 'CN_Sec_Acum', 'CN_Total'];
-
-categoriasMostrar.forEach(key => {
-    const data = resumen_nacional[key];
-    if (!data) return;
-    
-    const nombre = key === 'CN_Total' ? 'CN TOTAL' : key.replace(/_/g, ' ');
-    
-    html += `
-        <div class="cn-stat-item ${key === 'CN_Total' ? 'cn-total-item' : ''}">
-            <span class="cn-stat-label">${nombre}</span>
-            <span class="cn-stat-value">${data.suma.toLocaleString()}</span>
-            <span class="cn-stat-subvalue">Plazas en operación: ${data.plazasOperacion.toLocaleString()}</span>
-        </div>
-    `;
-});
-html += `</div></div>`;
-    
-    // Top 5 estados por CN_Total
-    if (top5_estados_por_CN_Total && top5_estados_por_CN_Total.length > 0) {
-        html += `
-            <div class="cn-card">
-                <h4>🏆 Top 5 Estados - CN Total</h4>
-                <div class="cn-stats-grid">
-        `;
+        if (!cnResumenCards || !cnResumenData?.resumen_nacional) return;
         
-        top5_estados_por_CN_Total.forEach((item, index) => {
-            const medal = index === 0 ? '🥇' : index === 1 ? '🥈' : index === 2 ? '🥉' : '🏅';
-            html += `
-                <div class="cn-stat-item">
-                    <span class="cn-stat-label">${medal} ${item.estado}</span>
-                    <span class="cn-stat-value">${item.suma_CN_Total.toLocaleString()}</span>
-                </div>
-            `;
+        const { resumen_nacional, top5_estados_por_CN_Total } = cnResumenData;
+        
+        cnResumenCards.innerHTML = '';
+        
+        // Resumen Nacional
+        const resumenCard = document.createElement('div');
+        resumenCard.className = 'cn-card';
+        
+        const tituloResumen = document.createElement('h4');
+        tituloResumen.textContent = '📊 Resumen Nacional';
+        
+        const statsGrid = document.createElement('div');
+        statsGrid.className = 'cn-stats-grid';
+        
+        const categoriasMostrar = ['CN_Inicial_Acum', 'CN_Prim_Acum', 'CN_Sec_Acum', 'CN_Total'];
+        
+        categoriasMostrar.forEach(key => {
+            const data = resumen_nacional[key];
+            if (!data) return;
+            
+            const statItem = document.createElement('div');
+            statItem.className = `cn-stat-item ${key === 'CN_Total' ? 'cn-total-item' : ''}`;
+            
+            const nombre = key === 'CN_Total' ? 'CN TOTAL' : key.replace(/_/g, ' ');
+            
+            const label = document.createElement('span');
+            label.className = 'cn-stat-label';
+            label.textContent = nombre;
+            
+            const value = document.createElement('span');
+            value.className = 'cn-stat-value';
+            value.textContent = data.suma.toLocaleString();
+            
+            const subvalue = document.createElement('span');
+            subvalue.className = 'cn-stat-subvalue';
+            subvalue.textContent = `Plazas en operación: ${data.plazasOperacion.toLocaleString()}`;
+            
+            statItem.appendChild(label);
+            statItem.appendChild(value);
+            statItem.appendChild(subvalue);
+            statsGrid.appendChild(statItem);
         });
         
-        html += `</div></div>`;
-    }
-    
-    cnResumenCards.innerHTML = html;
-};
-const renderTablaEstadosCN = () => {
-    if (!cnEstadosTable || !cnPorEstadoData?.estados) return;
-    
-    const { estados, cn_total_nacional } = cnPorEstadoData;
-    
-    // Crear encabezados con botones de ordenamiento
-    let html = `
-        <thead>
-            <tr>
-                <th>
-                    <button class="sort-btn" data-sort="estado" data-order="asc">
-                        Estado ▲
-                    </button>
-                </th>
-                <th>
-                    <button class="sort-btn" data-sort="total_plazas" data-order="desc">
-                        Total Plazas ▼
-                    </button>
-                </th>
-                <th>
-                    <button class="sort-btn" data-sort="cn_inicial" data-order="desc">
-                        CN Inicial ▼
-                    </button>
-                </th>
-                <th>
-                    <button class="sort-btn" data-sort="cn_primaria" data-order="desc">
-                        CN Primaria ▼
-                    </button>
-                </th>
-                <th>
-                    <button class="sort-btn" data-sort="cn_secundaria" data-order="desc">
-                        CN Secundaria ▼
-                    </button>
-                </th>
-                <th>
-                    <button class="sort-btn" data-sort="cn_total" data-order="desc">
-                        CN Total ▼
-                    </button>
-                </th>
-                <th>
-                    <button class="sort-btn" data-sort="pct_nacional" data-order="desc">
-                        % Sobre Nacional ▼
-                    </button>
-                </th>
-            </tr>
-        </thead>
-        <tbody>
-    `;
-    
-    // Renderizar filas iniciales
-    estados.forEach(estado => {
-        html += `
-            <tr>
-                <td><strong>${estado.estado}</strong></td>
-                <td>${estado.total_plazas.toLocaleString()}</td>
-                <td>${estado.suma_CN_Inicial_Acum.toLocaleString()}</td>
-                <td>${estado.suma_CN_Prim_Acum.toLocaleString()}</td>
-                <td>${estado.suma_CN_Sec_Acum.toLocaleString()}</td>
-                <td><span class="cn-badge badge-primary">${estado.suma_CN_Total.toLocaleString()}</span></td>
-                <td><span class="cn-badge badge-info">${estado.pct_sobre_nacional}%</span></td>
-            </tr>
-        `;
-    });
-    
-    html += `</tbody>`;
-    cnEstadosTable.innerHTML = html;
-    
-    // Agregar event listeners para los botones de ordenamiento
-    setupSorting();
-};
-
-// Actualizar la función de ordenamiento para incluir el nuevo campo
-const setupSorting = () => {
-    const sortButtons = document.querySelectorAll('.sort-btn');
-    let currentData = [...cnPorEstadoData.estados];
-    
-    sortButtons.forEach(button => {
-        button.addEventListener('click', () => {
-            const sortBy = button.getAttribute('data-sort');
-            const currentOrder = button.getAttribute('data-order');
-            const newOrder = currentOrder === 'asc' ? 'desc' : 'asc';
+        resumenCard.appendChild(tituloResumen);
+        resumenCard.appendChild(statsGrid);
+        cnResumenCards.appendChild(resumenCard);
+        
+        // Top 5 estados
+        if (top5_estados_por_CN_Total && top5_estados_por_CN_Total.length > 0) {
+            const top5Card = document.createElement('div');
+            top5Card.className = 'cn-card';
             
-            // Resetear todos los botones
-            sortButtons.forEach(btn => {
-                btn.textContent = btn.textContent.replace('▲', '').replace('▼', '');
-                btn.setAttribute('data-order', 'desc');
+            const tituloTop5 = document.createElement('h4');
+            tituloTop5.textContent = '🏆 Top 5 Estados - CN Total';
+            
+            const top5Grid = document.createElement('div');
+            top5Grid.className = 'cn-stats-grid';
+            
+            top5_estados_por_CN_Total.forEach((item, index) => {
+                const medal = index === 0 ? '🥇' : index === 1 ? '🥈' : index === 2 ? '🥉' : '🏅';
+                
+                const statItem = document.createElement('div');
+                statItem.className = 'cn-stat-item';
+                
+                const label = document.createElement('span');
+                label.className = 'cn-stat-label';
+                label.textContent = `${medal} ${item.estado}`;
+                
+                const value = document.createElement('span');
+                value.className = 'cn-stat-value';
+                value.textContent = item.suma_CN_Total.toLocaleString();
+                
+                statItem.appendChild(label);
+                statItem.appendChild(value);
+                top5Grid.appendChild(statItem);
             });
             
-            // Actualizar el botón actual
-            button.setAttribute('data-order', newOrder);
-            button.textContent = button.textContent.replace('▲', '').replace('▼', '') + (newOrder === 'asc' ? ' ▲' : ' ▼');
-            
-            // Ordenar los datos
-            sortTableData(sortBy, newOrder);
-        });
-    });
-    
-    const sortTableData = (sortBy, order) => {
-        const sortedData = [...currentData].sort((a, b) => {
-            let valueA, valueB;
-            
-            switch(sortBy) {
-                case 'estado':
-                    valueA = a.estado.toLowerCase();
-                    valueB = b.estado.toLowerCase();
-                    return order === 'asc' ? valueA.localeCompare(valueB) : valueB.localeCompare(valueA);
-                    
-                case 'total_plazas':
-                    valueA = a.total_plazas;
-                    valueB = b.total_plazas;
-                    break;
-                    
-                case 'cn_inicial':
-                    valueA = a.suma_CN_Inicial_Acum;
-                    valueB = b.suma_CN_Inicial_Acum;
-                    break;
-                    
-                case 'cn_primaria':
-                    valueA = a.suma_CN_Prim_Acum;
-                    valueB = b.suma_CN_Prim_Acum;
-                    break;
-                    
-                case 'cn_secundaria':
-                    valueA = a.suma_CN_Sec_Acum;
-                    valueB = b.suma_CN_Sec_Acum;
-                    break;
-                    
-                case 'cn_total':
-                    valueA = a.suma_CN_Total;
-                    valueB = b.suma_CN_Total;
-                    break;
-                    
-                case 'pct_nacional':  // Nuevo caso para ordenar por porcentaje
-                    valueA = a.pct_sobre_nacional;
-                    valueB = b.pct_sobre_nacional;
-                    break;
-                    
-                default:
-                    return 0;
-            }
-            
-            return order === 'asc' ? valueA - valueB : valueB - valueA;
-        });
-        
-        updateTableRows(sortedData);
+            top5Card.appendChild(tituloTop5);
+            top5Card.appendChild(top5Grid);
+            cnResumenCards.appendChild(top5Card);
+        }
     };
-    
-    const updateTableRows = (data) => {
-        const tbody = cnEstadosTable.querySelector('tbody');
-        let html = '';
+
+    const renderTablaEstadosCN = () => {
+        if (!cnEstadosTable || !cnPorEstadoData?.estados) return;
         
-        data.forEach(estado => {
-            html += `
-                <tr>
-                    <td><strong>${estado.estado}</strong></td>
-                    <td>${estado.total_plazas.toLocaleString()}</td>
-                    <td>${estado.suma_CN_Inicial_Acum.toLocaleString()}</td>
-                    <td>${estado.suma_CN_Prim_Acum.toLocaleString()}</td>
-                    <td>${estado.suma_CN_Sec_Acum.toLocaleString()}</td>
-                    <td><span class="cn-badge badge-primary">${estado.suma_CN_Total.toLocaleString()}</span></td>
-                    <td><span class="cn-badge badge-info">${estado.pct_sobre_nacional}%</span></td>
-                </tr>
-            `;
+        const { estados } = cnPorEstadoData;
+        
+        // Limpiar tabla
+        cnEstadosTable.innerHTML = '';
+        
+        // Crear thead
+        const thead = document.createElement('thead');
+        const headerRow = document.createElement('tr');
+        
+        const headers = [
+            { text: 'Estado', sort: 'estado', order: 'asc' },
+            { text: 'Total Plazas', sort: 'total_plazas', order: 'desc' },
+            { text: 'CN Inicial', sort: 'cn_inicial', order: 'desc' },
+            { text: 'CN Primaria', sort: 'cn_primaria', order: 'desc' },
+            { text: 'CN Secundaria', sort: 'cn_secundaria', order: 'desc' },
+            { text: 'CN Total', sort: 'cn_total', order: 'desc' },
+            { text: '% Sobre Nacional', sort: 'pct_nacional', order: 'desc' }
+        ];
+        
+        headers.forEach(header => {
+            const th = document.createElement('th');
+            const button = document.createElement('button');
+            button.className = 'sort-btn';
+            button.setAttribute('data-sort', header.sort);
+            button.setAttribute('data-order', header.order);
+            button.textContent = `${header.text} ${header.order === 'asc' ? '▲' : '▼'}`;
+            th.appendChild(button);
+            headerRow.appendChild(th);
         });
         
-        tbody.innerHTML = html;
+        thead.appendChild(headerRow);
+        cnEstadosTable.appendChild(thead);
+        
+        // Crear tbody
+        const tbody = document.createElement('tbody');
+        
+        estados.forEach(estado => {
+            const row = document.createElement('tr');
+            
+            const crearCelda = (contenido, esStrong = false, badgeClass = '') => {
+                const td = document.createElement('td');
+                if (esStrong) {
+                    const strong = document.createElement('strong');
+                    strong.textContent = contenido;
+                    td.appendChild(strong);
+                } else if (badgeClass) {
+                    const badge = document.createElement('span');
+                    badge.className = `cn-badge ${badgeClass}`;
+                    badge.textContent = contenido;
+                    td.appendChild(badge);
+                } else {
+                    td.textContent = contenido;
+                }
+                return td;
+            };
+            
+            row.appendChild(crearCelda(estado.estado, true));
+            row.appendChild(crearCelda(estado.total_plazas.toLocaleString()));
+            row.appendChild(crearCelda(estado.suma_CN_Inicial_Acum.toLocaleString()));
+            row.appendChild(crearCelda(estado.suma_CN_Prim_Acum.toLocaleString()));
+            row.appendChild(crearCelda(estado.suma_CN_Sec_Acum.toLocaleString()));
+            row.appendChild(crearCelda(estado.suma_CN_Total.toLocaleString(), false, 'badge-primary'));
+            row.appendChild(crearCelda(`${estado.pct_sobre_nacional}%`, false, 'badge-info'));
+            
+            tbody.appendChild(row);
+        });
+        
+        cnEstadosTable.appendChild(tbody);
+        setupSorting();
     };
-};
- 
+
+    const setupSorting = () => {
+        const sortButtons = document.querySelectorAll('.sort-btn');
+        let currentData = [...cnPorEstadoData.estados];
+        
+        sortButtons.forEach(button => {
+            button.addEventListener('click', () => {
+                const sortBy = button.getAttribute('data-sort');
+                const currentOrder = button.getAttribute('data-order');
+                const newOrder = currentOrder === 'asc' ? 'desc' : 'asc';
+                
+                sortButtons.forEach(btn => {
+                    btn.textContent = btn.textContent.replace('▲', '').replace('▼', '');
+                    btn.setAttribute('data-order', 'desc');
+                });
+                
+                button.setAttribute('data-order', newOrder);
+                button.textContent = button.textContent.replace('▲', '').replace('▼', '') + (newOrder === 'asc' ? ' ▲' : ' ▼');
+                
+                sortTableData(sortBy, newOrder);
+            });
+        });
+        
+        const sortTableData = (sortBy, order) => {
+            const sortedData = [...currentData].sort((a, b) => {
+                let valueA, valueB;
+                
+                switch(sortBy) {
+                    case 'estado':
+                        valueA = a.estado.toLowerCase();
+                        valueB = b.estado.toLowerCase();
+                        return order === 'asc' ? valueA.localeCompare(valueB) : valueB.localeCompare(valueA);
+                        
+                    case 'total_plazas':
+                        valueA = a.total_plazas;
+                        valueB = b.total_plazas;
+                        break;
+                        
+                    case 'cn_inicial':
+                        valueA = a.suma_CN_Inicial_Acum;
+                        valueB = b.suma_CN_Inicial_Acum;
+                        break;
+                        
+                    case 'cn_primaria':
+                        valueA = a.suma_CN_Prim_Acum;
+                        valueB = b.suma_CN_Prim_Acum;
+                        break;
+                        
+                    case 'cn_secundaria':
+                        valueA = a.suma_CN_Sec_Acum;
+                        valueB = b.suma_CN_Sec_Acum;
+                        break;
+                        
+                    case 'cn_total':
+                        valueA = a.suma_CN_Total;
+                        valueB = b.suma_CN_Total;
+                        break;
+                        
+                    case 'pct_nacional':
+                        valueA = a.pct_sobre_nacional;
+                        valueB = b.pct_sobre_nacional;
+                        break;
+                        
+                    default:
+                        return 0;
+                }
+                
+                return order === 'asc' ? valueA - valueB : valueB - valueA;
+            });
+            
+            updateTableRows(sortedData);
+        };
+        
+        const updateTableRows = (data) => {
+            const tbody = cnEstadosTable.querySelector('tbody');
+            tbody.innerHTML = '';
+            
+            data.forEach(estado => {
+                const row = document.createElement('tr');
+                
+                const crearCelda = (contenido, esStrong = false, badgeClass = '') => {
+                    const td = document.createElement('td');
+                    if (esStrong) {
+                        const strong = document.createElement('strong');
+                        strong.textContent = contenido;
+                        td.appendChild(strong);
+                    } else if (badgeClass) {
+                        const badge = document.createElement('span');
+                        badge.className = `cn-badge ${badgeClass}`;
+                        badge.textContent = contenido;
+                        td.appendChild(badge);
+                    } else {
+                        td.textContent = contenido;
+                    }
+                    return td;
+                };
+                
+                row.appendChild(crearCelda(estado.estado, true));
+                row.appendChild(crearCelda(estado.total_plazas.toLocaleString()));
+                row.appendChild(crearCelda(estado.suma_CN_Inicial_Acum.toLocaleString()));
+                row.appendChild(crearCelda(estado.suma_CN_Prim_Acum.toLocaleString()));
+                row.appendChild(crearCelda(estado.suma_CN_Sec_Acum.toLocaleString()));
+                row.appendChild(crearCelda(estado.suma_CN_Total.toLocaleString(), false, 'badge-primary'));
+                row.appendChild(crearCelda(`${estado.pct_sobre_nacional}%`, false, 'badge-info'));
+                
+                tbody.appendChild(row);
+            });
+        };
+    };
+     
     const renderEstadisticasCN = () => {
-    if (!cnResumenData || !cnPorEstadoData || !cnTopEstadosData) return;
-    renderResumenCN(); // Esta es la función modificada
-    renderTablaEstadosCN();
-};
+        if (!cnResumenData || !cnPorEstadoData || !cnTopEstadosData) return;
+        renderResumenCN();
+        renderTablaEstadosCN();
+    };
+
     const renderEstadosDestacadosCN = (estadosDestacados) => {
         if (!estadosDestacados) return;
         if (estadosDestacados.CN_Inicial_Acum) {
@@ -878,17 +1148,29 @@ const setupSorting = () => {
         if (!top5Todos) return;
         const renderList = (listElement, data) => {
             if (!listElement || !data) return;
-            let html = '';
+            listElement.innerHTML = '';
+            
             data.forEach((item, index) => {
-                html += `
-                    <div class="top10-item">
-                        <span class="top10-rank">#${index + 1}</span>
-                        <span class="top10-state">${item.estado}</span>
-                        <span class="top10-value">${item.valor.toLocaleString()}</span>
-                    </div>
-                `;
+                const itemDiv = document.createElement('div');
+                itemDiv.className = 'top10-item';
+                
+                const rank = document.createElement('span');
+                rank.className = 'top10-rank';
+                rank.textContent = `#${index + 1}`;
+                
+                const state = document.createElement('span');
+                state.className = 'top10-state';
+                state.textContent = item.estado;
+                
+                const value = document.createElement('span');
+                value.className = 'top10-value';
+                value.textContent = item.valor.toLocaleString();
+                
+                itemDiv.appendChild(rank);
+                itemDiv.appendChild(state);
+                itemDiv.appendChild(value);
+                listElement.appendChild(itemDiv);
             });
-            listElement.innerHTML = html;
         };
         renderList(cnTop5InicialList, top5Todos.inicial);
         renderList(cnTop5PrimariaList, top5Todos.primaria);
@@ -935,7 +1217,7 @@ const setupSorting = () => {
             estadisticasData = stats;
 
             if (totalPlazas) totalPlazas.textContent = stats.totalPlazas?.toLocaleString() || '0';
-            if (plazasOperacion) plazasOperacion.textContent = stats.plazasOperacion?.toLocaleString() || '0'; // <-- FUNCIONALIDAD AGREGADA
+            if (plazasOperacion) plazasOperacion.textContent = stats.plazasOperacion?.toLocaleString() || '0';
             if (totalEstados) totalEstados.textContent = stats.totalEstados?.toLocaleString() || '0';
             if (estadoMasPlazasNombre) estadoMasPlazasNombre.textContent = stats.estadoMasPlazas?.nombre || 'N/A';
             if (estadoMasPlazasCantidad) estadoMasPlazasCantidad.textContent = stats.estadoMasPlazas?.cantidad?.toLocaleString() || '0';
@@ -964,7 +1246,7 @@ const setupSorting = () => {
         try {
             showLoader('Obteniendo lista de estados y plazas...');
             
-            const estados = await fetchData('/api/estados_con_conteo'); // Assuming an optimized endpoint exists
+            const estados = await fetchData('/api/estados_con_conteo');
             estados.sort((a, b) => b.cantidad - a.cantidad);
             
             todosEstadosData = estados;
@@ -984,17 +1266,28 @@ const setupSorting = () => {
         estadosGrid.innerHTML = '';
         
         if (estados.length === 0) {
-            estadosGrid.innerHTML = '<p class="no-results">No se encontraron estados.</p>';
+            const noResults = document.createElement('p');
+            noResults.className = 'no-results';
+            noResults.textContent = 'No se encontraron estados.';
+            estadosGrid.appendChild(noResults);
             return;
         }
         
         estados.forEach(estado => {
             const item = document.createElement('div');
             item.className = 'state-menu-item';
-            item.innerHTML = `
-                <div class="state-menu-name">${estado.nombre}</div>
-                <div class="state-menu-count">${estado.cantidad || 'N/A'} plazas</div>
-            `;
+            
+            const nameDiv = document.createElement('div');
+            nameDiv.className = 'state-menu-name';
+            nameDiv.textContent = estado.nombre;
+            
+            const countDiv = document.createElement('div');
+            countDiv.className = 'state-menu-count';
+            countDiv.textContent = `${estado.cantidad || 'N/A'} plazas`;
+            
+            item.appendChild(nameDiv);
+            item.appendChild(countDiv);
+            
             item.addEventListener('click', () => {
                 estadoSeleccionado = estado.nombre;
                 history.pushState({ view: 'plazas-por-estado-view' }, '', '#plazas-por-estado-view');
@@ -1043,21 +1336,41 @@ const setupSorting = () => {
         plazasListContainer.innerHTML = '';
         
         if (plazas.length === 0) {
-            plazasListContainer.innerHTML = '<p class="no-results">No se encontraron plazas para este estado.</p>';
+            const noResults = document.createElement('p');
+            noResults.className = 'no-results';
+            noResults.textContent = 'No se encontraron plazas para este estado.';
+            plazasListContainer.appendChild(noResults);
             return;
         }
         
         plazas.forEach(plaza => {
             const item = document.createElement('div');
             item.className = 'plaza-list-item';
-            item.innerHTML = `
-                <div class="plaza-clave">${plaza.clave}</div>
-                <div class="plaza-direccion">${plaza.direccion || 'Dirección no disponible'}</div>
-                <div class="plaza-ubicacion">
-                    <span>${plaza.municipio}</span>
-                    <span>${plaza.localidad}</span>
-                </div>
-            `;
+            
+            const claveDiv = document.createElement('div');
+            claveDiv.className = 'plaza-clave';
+            claveDiv.textContent = plaza.clave;
+            
+            const direccionDiv = document.createElement('div');
+            direccionDiv.className = 'plaza-direccion';
+            direccionDiv.textContent = plaza.direccion || 'Dirección no disponible';
+            
+            const ubicacionDiv = document.createElement('div');
+            ubicacionDiv.className = 'plaza-ubicacion';
+            
+            const municipioSpan = document.createElement('span');
+            municipioSpan.textContent = plaza.municipio;
+            
+            const localidadSpan = document.createElement('span');
+            localidadSpan.textContent = plaza.localidad;
+            
+            ubicacionDiv.appendChild(municipioSpan);
+            ubicacionDiv.appendChild(localidadSpan);
+            
+            item.appendChild(claveDiv);
+            item.appendChild(direccionDiv);
+            item.appendChild(ubicacionDiv);
+            
             item.addEventListener('click', () => {
                 buscarYMostrarClave(plaza.clave, filterLoader);
             });
@@ -1085,6 +1398,155 @@ const setupSorting = () => {
         plazasSearchInput.addEventListener('input', (e) => debouncedSearch(e.target.value));
     };
 
+    // ===== SISTEMA DE MODAL PARA IMÁGENES =====
+    function initImageModal() {
+        if (!document.getElementById('image-modal')) {
+            const modalOverlay = document.createElement('div');
+            modalOverlay.id = 'image-modal';
+            modalOverlay.className = 'modal-overlay';
+            
+            const modalContent = document.createElement('div');
+            modalContent.className = 'modal-content';
+            
+            const modalCounter = document.createElement('div');
+            modalCounter.className = 'modal-counter';
+            modalCounter.innerHTML = '<span id="modal-current">1</span> / <span id="modal-total">1</span>';
+            
+            const modalControls = document.createElement('div');
+            modalControls.className = 'modal-controls';
+            const closeButton = document.createElement('button');
+            closeButton.className = 'modal-btn modal-close';
+            closeButton.title = 'Cerrar (Esc)';
+            closeButton.textContent = '×';
+            modalControls.appendChild(closeButton);
+            
+            const prevButton = document.createElement('button');
+            prevButton.className = 'modal-nav modal-prev';
+            prevButton.title = 'Anterior (←)';
+            prevButton.textContent = '‹';
+            
+            const nextButton = document.createElement('button');
+            nextButton.className = 'modal-nav modal-next';
+            nextButton.title = 'Siguiente (→)';
+            nextButton.textContent = '›';
+            
+            const modalImage = document.createElement('img');
+            modalImage.className = 'modal-image';
+            modalImage.src = '';
+            modalImage.alt = '';
+            
+            const modalInfo = document.createElement('div');
+            modalInfo.className = 'modal-info';
+            const filenameDiv = document.createElement('div');
+            filenameDiv.id = 'modal-filename';
+            filenameDiv.className = 'modal-filename';
+            filenameDiv.textContent = 'Imagen';
+            const sourceDiv = document.createElement('div');
+            sourceDiv.id = 'modal-source';
+            sourceDiv.className = 'modal-source';
+            sourceDiv.textContent = 'Desde Google Drive';
+            
+            modalInfo.appendChild(filenameDiv);
+            modalInfo.appendChild(sourceDiv);
+            
+            modalContent.appendChild(modalCounter);
+            modalContent.appendChild(modalControls);
+            modalContent.appendChild(prevButton);
+            modalContent.appendChild(nextButton);
+            modalContent.appendChild(modalImage);
+            modalContent.appendChild(modalInfo);
+            
+            modalOverlay.appendChild(modalContent);
+            document.body.appendChild(modalOverlay);
+        }
+
+        const modal = document.getElementById('image-modal');
+        const modalImage = modal.querySelector('.modal-image');
+        const modalClose = modal.querySelector('.modal-close');
+        const modalPrev = modal.querySelector('.modal-prev');
+        const modalNext = modal.querySelector('.modal-next');
+        const modalCurrent = document.getElementById('modal-current');
+        const modalTotal = document.getElementById('modal-total');
+        const modalFilename = document.getElementById('modal-filename');
+        const modalSource = document.getElementById('modal-source');
+
+        let currentImages = [];
+        let currentIndex = 0;
+
+        function openModal(images, startIndex = 0) {
+            currentImages = images;
+            currentIndex = startIndex;
+            
+            modalTotal.textContent = images.length;
+            updateModalImage();
+            modal.classList.add('active');
+            document.body.style.overflow = 'hidden';
+        }
+
+        function closeModal() {
+            modal.classList.remove('active');
+            document.body.style.overflow = '';
+            currentImages = [];
+            currentIndex = 0;
+        }
+
+        function updateModalImage() {
+            if (currentImages.length === 0) return;
+            
+            const imageUrl = currentImages[currentIndex];
+            modalImage.src = imageUrl;
+            modalCurrent.textContent = currentIndex + 1;
+            
+            const filename = imageUrl.split('/').pop() || 'imagen.jpg';
+            modalFilename.textContent = decodeURIComponent(filename);
+            
+            modalPrev.style.display = currentIndex > 0 ? 'flex' : 'none';
+            modalNext.style.display = currentIndex < currentImages.length - 1 ? 'flex' : 'none';
+        }
+
+        function nextImage() {
+            if (currentIndex < currentImages.length - 1) {
+                currentIndex++;
+                updateModalImage();
+            }
+        }
+
+        function prevImage() {
+            if (currentIndex > 0) {
+                currentIndex--;
+                updateModalImage();
+            }
+        }
+
+        modalClose.addEventListener('click', closeModal);
+        modalPrev.addEventListener('click', prevImage);
+        modalNext.addEventListener('click', nextImage);
+
+        modal.addEventListener('click', (e) => {
+            if (e.target === modal) {
+                closeModal();
+            }
+        });
+
+        document.addEventListener('keydown', (e) => {
+            if (!modal.classList.contains('active')) return;
+            
+            switch(e.key) {
+                case 'Escape':
+                    closeModal();
+                    break;
+                case 'ArrowLeft':
+                    prevImage();
+                    break;
+                case 'ArrowRight':
+                    nextImage();
+                    break;
+            }
+        });
+
+        return { openModal };
+    }
+
     // --- INICIALIZACIÓN FINAL ---
     const initApp = () => {
         const resetButton = document.getElementById('reset-search-button');
@@ -1096,11 +1558,19 @@ const setupSorting = () => {
         setupProgressBarNavigation();
         actualizarProgreso();
         addAutoSearchToggle();
+        
+        const { openModal } = initImageModal();
+        modalOpenFunction = openModal;
+        
+        loadExcelLastUpdate();
+        setupUpdateBadgeInteractions();
+        
         handleNavigation();
     };
 
     initApp();
 });
+
 // ===== FUNCIÓN PARA CARGAR FECHA DE ACTUALIZACIÓN =====
 function loadExcelLastUpdate() {
     fetch('/api/excel/last-update')
@@ -1121,7 +1591,6 @@ function loadExcelLastUpdate() {
                 
                 updateElement.textContent = formattedDate;
                 
-                // Hacer más discreto después de 5 segundos
                 setTimeout(() => {
                     const badge = document.getElementById('excel-update-info');
                     if (badge) badge.classList.add('minimal');
@@ -1157,28 +1626,3 @@ document.addEventListener('DOMContentLoaded', function() {
     loadExcelLastUpdate();
     setupUpdateBadgeInteractions();
 });
-
-// También cargar cuando se cambie de vista (por si acaso)
-document.addEventListener('viewChanged', function() {
-    setTimeout(loadExcelLastUpdate, 1000);
-});
-// Función adicional para cambiar fondos de tema
-(function() {
-    const body = document.body;
-
-    function setLightTheme() {
-        body.style.backgroundImage = "url('/static/claro.jpg')";
-        body.style.backgroundSize = "cover";
-    }
-
-    function setDarkTheme() {
-        body.style.backgroundImage = "url('/static/noche.jpg')";
-        body.style.backgroundSize = "cover";
-    }
-
-    const btnLight = document.getElementById('theme-light');
-    const btnDark = document.getElementById('theme-dark');
-
-    if (btnLight) btnLight.addEventListener('click', setLightTheme);
-    if (btnDark) btnDark.addEventListener('click', setDarkTheme);
-})();
