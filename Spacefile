@@ -1,4 +1,12 @@
-name: mi_app_flask      # Nombre de tu Space
-runtime: python3.11      # Versión de Python que usarás
-src: .                   # Carpeta que contiene tu código
-run: python app.py        # Comando para iniciar tu aplicación
+name: mi_app_flask           # Nombre del servicio
+type: web                    # Tipo de servicio (web app)
+runtime: python3.11          # Versión de Python
+buildCommand: pip install -r requirements.txt
+startCommand: python app.py
+autoDeploy: true             # (Opcional) se actualiza al hacer push en GitHub
+
+envVars:
+  - key: FLASK_ENV
+    value: production
+  - key: EXCEL_PATH
+    value: datos_plazas.xlsx
