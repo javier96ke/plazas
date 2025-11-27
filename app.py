@@ -8,6 +8,13 @@ import json
 from flask import redirect 
 from unidecode import unidecode
 from datetime import datetime
+from drive_excel_reader import drive_excel_reader_readonly  
+from drive_excel_reader import drive_excel_comparator  
+from drive_excel_reader import (
+    safe_json_serialize,  
+    obtener_años_desde_arbol_json,
+    obtener_nombre_mes
+)
 
 # ==============================================================================
 # 1. CONFIGURACIÓN Y LOGGING
@@ -824,7 +831,7 @@ def get_drive_tree():
             drive_data = json.load(f)
         
         generated_at = datetime.fromisoformat(drive_data['generated_at'])
-        if (datetime.now() - generated_at).days > 16:
+        if (datetime.now() - generated_at).days > 500:
             return jsonify({
                 'error': 'El árbol de Drive está desactualizado',
                 'last_update': drive_data['generated_at'],
@@ -873,7 +880,919 @@ def serve_drive_image(image_path):
         return jsonify({'error': 'Error al cargar imagen'}), 500
 
 # ==============================================================================
-# 8. PUNTO DE ENTRADA
+# 8. ENDPOINTS PARA EXCEL DESDE GOOGLE DRIVE (SOLO LECTURA - BAJO DEMANDA)
+# ==============================================================================
+@app.route('/api/drive-excel/years')
+def get_drive_excel_years():
+    """Obtiene años disponibles desde Google Drive - SOLO METADATOS"""
+    try:
+        years = drive_excel_reader_readonly.get_available_years()
+        return jsonify({
+            'status': 'success',
+            'data_type': 'metadata_only',
+            'years': years
+        })
+    except Exception as e:
+        logging.error(f"Error obteniendo años desde Drive: {e}")
+        return jsonify({'status': 'error', 'message': str(e)}), 500
+
+@app.route('/api/drive-excel/years/<year>/months')
+def get_drive_excel_months(year):
+    """Obtiene meses disponibles para un año desde Drive - SOLO METADATOS"""
+    try:
+        months = drive_excel_reader_readonly.get_available_months(year)
+        return jsonify({
+            'status': 'success', 
+            'data_type': 'metadata_only',
+            'year': year,
+            'months': months
+        })
+    except Exception as e:
+        logging.error(f"Error obteniendo meses para {year} desde Drive: {e}")
+        return jsonify({'status': 'error', 'message': str(e)}), 500
+
+@app.route('/api/drive-excel/years/<year>/months/<month>/files')
+def get_drive_excel_files(year, month):
+    """Obtiene archivos Excel para fecha específica - SOLO METADATOS"""
+    try:
+        files = drive_excel_reader_readonly.get_excel_files_by_date(year, month)
+        return jsonify({
+            'status': 'success',
+            'data_type': 'metadata_only', 
+            'year': year,
+            'month': month,
+            'files': files,
+            'count': len(files)
+        })
+    except Exception as e:
+        logging.error(f"Error obteniendo archivos para {year}/{month} desde Drive: {e}")
+        return jsonify({'status': 'error', 'message': str(e)}), 500
+
+@app.route('/api/drive-excel/query/<year>/<month>')
+def query_drive_excel_data(year, month):
+    """CONSULTA DE SOLO LECTURA - Carga bajo demanda estricta desde Drive"""
+    try:
+        filename = request.args.get('filename')
+        query_type = request.args.get('query', 'basic_stats')
+        
+        result = drive_excel_reader_readonly.query_excel_data_readonly(
+            year, month, filename, query_type
+        )
+        
+        # Siempre devolver información de la fuente
+        result['data_source'] = 'google_drive_readonly'
+        result['requested_file'] = f"{year}/{month}" + (f"/{filename}" if filename else "")
+        
+        return jsonify(result)
+            
+    except Exception as e:
+        logging.error(f"Error en consulta Drive para {year}/{month}: {e}")
+        return jsonify({
+            'status': 'error', 
+            'message': str(e),
+            'data_source': 'google_drive_readonly'
+        }), 500
+
+@app.route('/api/drive-excel/info/<year>/<month>')
+def get_drive_excel_info(year, month):
+    """Obtiene información de archivo Excel - SIN cargarlo"""
+    try:
+        filename = request.args.get('filename')
+        file_info = drive_excel_reader_readonly.get_excel_info(year, month, filename)
+        
+        if file_info:
+            return jsonify({
+                'status': 'success',
+                'data_type': 'metadata_only',
+                'file_info': file_info
+            })
+        else:
+            return jsonify({
+                'status': 'error',
+                'message': 'Archivo no encontrado en Drive'
+            }), 404
+            
+    except Exception as e:
+        logging.error(f"Error obteniendo info Drive para {year}/{month}: {e}")
+        return jsonify({'status': 'error', 'message': str(e)}), 500
+
+@app.route('/api/drive-excel/stats')
+def get_drive_excel_stats():
+    """Estadísticas de uso del sistema Drive - SIN datos sensibles"""
+    try:
+        stats = drive_excel_reader_readonly.get_stats()
+        return jsonify({
+            'status': 'success',
+            'data_type': 'usage_stats',
+            'stats': stats
+        })
+    except Exception as e:
+        logging.error(f"Error obteniendo stats Drive: {e}")
+        return jsonify({'status': 'error', 'message': str(e)}), 500
+
+@app.route('/api/drive-excel/cleanup')
+def cleanup_drive_cache():
+    """Limpia cache de Drive manualmente - Solo para mantenimiento"""
+    try:
+        before_count = drive_excel_reader_readonly.get_loaded_files_count()
+        drive_excel_reader_readonly.clear_all_cache()
+        after_count = drive_excel_reader_readonly.get_loaded_files_count()
+        
+        return jsonify({
+            'status': 'success',
+            'message': f'Cache Drive limpiado: {before_count} -> {after_count} archivos',
+            'cleaned_files': before_count - after_count
+        })
+    except Exception as e:
+        logging.error(f"Error limpiando cache Drive: {e}")
+        return jsonify({'status': 'error', 'message': str(e)}), 500
+
+# ==============================================================================
+# 9. ENDPOINTS PARA COMPARATIVAS DE PERÍODOS ACUMULATIVOS - CORREGIDOS
+# ==============================================================================
+
+@app.route('/api/drive-comparativas/periodos')
+def get_comparativa_periodos():
+    """Obtiene años y meses disponibles para comparativas - CORREGIDO"""
+    try:
+        # Usar la instancia directa del reader
+        years, meses_disponibles = obtener_años_desde_arbol_json()
+        return jsonify({
+            'status': 'success',
+            'years': years,
+            'meses_por_anio': meses_disponibles
+        })
+    except Exception as e:
+        logging.error(f"Error obteniendo períodos para comparativas: {e}")
+        return jsonify({'status': 'error', 'message': str(e)}), 500
+
+@app.route('/api/drive-comparativas/comparar')
+def comparar_periodos_acumulativos():
+    """Compara dos períodos acumulativos desde Drive - CORREGIDO"""
+    try:
+        year = request.args.get('year', '')
+        periodo1 = request.args.get('periodo1', '')
+        periodo2 = request.args.get('periodo2', '')
+        
+        if not all([year, periodo1, periodo2]):
+            return jsonify({
+                'status': 'error', 
+                'message': 'Se requieren year, periodo1 y periodo2'
+            }), 400
+        
+        # Usar el método avanzado en lugar del básico
+        resultado = drive_excel_comparator.comparar_periodos_avanzado(
+            year, periodo1, periodo2, 'Todos', 
+            ['CN_Inicial_Acum', 'CN_Prim_Acum', 'CN_Sec_Acum', 'CN_Tot_Acum']
+        )
+        
+        if resultado.get('status') == 'success':
+            return jsonify(resultado)
+        else:
+            return jsonify(resultado), 400
+            
+    except Exception as e:
+        logging.error(f"Error en comparativa de períodos: {e}")
+        return jsonify({'status': 'error', 'message': str(e)}), 500
+
+@app.route('/api/drive-comparativas/cn-resumen-comparativo')
+def get_cn_resumen_comparativo():
+    """Resumen CN comparativo entre períodos - CORREGIDO"""
+    try:
+        year = request.args.get('year', '')
+        periodo1 = request.args.get('periodo1', '')
+        periodo2 = request.args.get('periodo2', '')
+        
+        if not all([year, periodo1, periodo2]):
+            return jsonify({
+                'status': 'error', 
+                'message': 'Se requieren year, periodo1 y periodo2'
+            }), 400
+        
+        # Usar comparación avanzada para obtener datos completos
+        resultado = drive_excel_comparator.comparar_periodos_avanzado(
+            year, periodo1, periodo2, 'Todos',
+            ['CN_Inicial_Acum', 'CN_Prim_Acum', 'CN_Sec_Acum', 'CN_Tot_Acum']
+        )
+        
+        if resultado.get('status') == 'success':
+            # Extraer solo la información de CN para el resumen
+            comparacion = resultado.get('comparacion', {})
+            metricas_globales = comparacion.get('metricas_globales', {})
+            metricas_principales = resultado.get('metricas_principales', {})
+            
+            resumen_cn = {
+                'comparacion_general': {
+                    'periodo1': periodo1,
+                    'periodo2': periodo2,
+                    'plazas_nuevas': metricas_principales.get('plazas_nuevas', 0),
+                    'plazas_eliminadas': metricas_principales.get('plazas_eliminadas', 0),
+                    'incremento_cn_total': metricas_principales.get('incremento_cn_total', 0)
+                },
+                'metricas_detalladas': metricas_globales,
+                'resumen_cambios': metricas_principales.get('resumen_cambios', '')
+            }
+            
+            return jsonify({
+                'status': 'success',
+                'year': year,
+                'periodo1': periodo1,
+                'periodo2': periodo2,
+                'resumen_comparativo': resumen_cn
+            })
+        else:
+            return jsonify({
+                'status': 'error',
+                'message': resultado.get('error', 'Error en la comparación')
+            }), 400
+            
+    except Exception as e:
+        logging.error(f"Error en resumen CN comparativo: {e}")
+        return jsonify({'status': 'error', 'message': str(e)}), 500
+
+@app.route('/api/drive-comparativas/top-estados-comparativo')
+def get_top_estados_comparativo():
+    """Top estados comparativo por métrica CN entre períodos - CORREGIDO"""
+    try:
+        year = request.args.get('year', '')
+        periodo1 = request.args.get('periodo1', '')
+        periodo2 = request.args.get('periodo2', '')
+        metric = request.args.get('metric', 'CN_Tot_Acum')
+        n = int(request.args.get('n', 5))
+        
+        if not all([year, periodo1, periodo2]):
+            return jsonify({
+                'status': 'error', 
+                'message': 'Se requieren year, periodo1 y periodo2'
+            }), 400
+        
+        # Usar comparación avanzada
+        resultado = drive_excel_comparator.comparar_periodos_avanzado(
+            year, periodo1, periodo2, 'Todos', [metric]
+        )
+        
+        if resultado.get('status') == 'success':
+            comparacion = resultado.get('comparacion', {})
+            analisis_por_estado = comparacion.get('analisis_por_estado', {})
+            
+            # Calcular top estados por la métrica específica
+            estados_con_metricas = []
+            for estado, datos in analisis_por_estado.items():
+                metricas_estado = datos.get('metricas', {})
+                if metric in metricas_estado:
+                    metrica_data = metricas_estado[metric]
+                    estados_con_metricas.append({
+                        'estado': estado,
+                        'periodo1': metrica_data.get('periodo1', 0),
+                        'periodo2': metrica_data.get('periodo2', 0),
+                        'cambio': metrica_data.get('cambio', 0),
+                        'porcentaje_cambio': metrica_data.get('porcentaje_cambio', 0)
+                    })
+            
+            # Ordenar por cambio absoluto (mayor primero)
+            estados_con_metricas.sort(key=lambda x: abs(x['cambio']), reverse=True)
+            top_estados = estados_con_metricas[:n]
+            
+            return jsonify({
+                'status': 'success',
+                'year': year,
+                'periodo1': periodo1,
+                'periodo2': periodo2,
+                'metric': metric,
+                'top_comparativo': top_estados
+            })
+        else:
+            return jsonify({
+                'status': 'error',
+                'message': resultado.get('error', 'Error en la comparación')
+            }), 400
+            
+    except Exception as e:
+        logging.error(f"Error en top estados comparativo: {e}")
+        return jsonify({'status': 'error', 'message': str(e)}), 500
+
+@app.route('/api/drive-comparativas/estadisticas-comparativas')
+def get_estadisticas_comparativas():
+    """Estadísticas comparativas generales entre períodos - CORREGIDO"""
+    try:
+        year = request.args.get('year', '')
+        periodo1 = request.args.get('periodo1', '')
+        periodo2 = request.args.get('periodo2', '')
+        
+        if not all([year, periodo1, periodo2]):
+            return jsonify({
+                'status': 'error', 
+                'message': 'Se requieren year, periodo1 y periodo2'
+            }), 400
+        
+        # Usar comparación avanzada
+        resultado = drive_excel_comparator.comparar_periodos_avanzado(
+            year, periodo1, periodo2, 'Todos'
+        )
+        
+        if resultado.get('status') == 'success':
+            comparacion = resultado.get('comparacion', {})
+            metricas_principales = resultado.get('metricas_principales', {})
+            
+            estadisticas_comparativas = {
+                'general': comparacion.get('resumen_general', {}),
+                'analisis_plazas': comparacion.get('analisis_plazas', {}),
+                'metricas_globales': comparacion.get('metricas_globales', {}),
+                'analisis_por_estado': comparacion.get('analisis_por_estado', {}),
+                'resumen_cambios': metricas_principales
+            }
+            
+            return jsonify({
+                'status': 'success',
+                'year': year,
+                'periodo1': periodo1,
+                'periodo2': periodo2,
+                'estadisticas_comparativas': estadisticas_comparativas
+            })
+        else:
+            return jsonify({
+                'status': 'error',
+                'message': resultado.get('error', 'Error en la comparación')
+            }), 400
+            
+    except Exception as e:
+        logging.error(f"Error en estadísticas comparativas: {e}")
+        return jsonify({'status': 'error', 'message': str(e)}), 500
+
+@app.route('/api/drive-comparativas/analisis-tendencia')
+def get_analisis_tendencia():
+    """Análisis de tendencia entre múltiples períodos - CORREGIDO"""
+    try:
+        year = request.args.get('year', '')
+        periodo_inicio = request.args.get('periodo_inicio', '01')
+        periodo_fin = request.args.get('periodo_fin', '12')
+        
+        if not year:
+            return jsonify({
+                'status': 'error', 
+                'message': 'Se requiere el parámetro year'
+            }), 400
+        
+        # Obtener todos los meses disponibles para el año
+        meses_disponibles = drive_excel_reader_readonly.get_available_months(year)
+        if not meses_disponibles:
+            return jsonify({
+                'status': 'error',
+                'message': f'No hay datos disponibles para el año {year}'
+            }), 404
+        
+        # Filtrar meses en el rango solicitado
+        meses_analisis = [mes for mes in meses_disponibles 
+                         if periodo_inicio <= mes <= periodo_fin]
+        
+        if not meses_analisis:
+            return jsonify({
+                'status': 'error',
+                'message': 'No hay meses en el rango especificado'
+            }), 400
+        
+        # Analizar tendencia
+        tendencia_data = []
+        for mes in sorted(meses_analisis):
+            df, info = drive_excel_reader_readonly.load_excel_strict(year, mes)
+            if df is not None:
+                total_plazas = len(df)
+                
+                # Calcular métricas CN
+                metricas_cn = {}
+                for col in ['CN_Inicial_Acum', 'CN_Prim_Acum', 'CN_Sec_Acum', 'CN_Tot_Acum']:
+                    if col in df.columns:
+                        metricas_cn[col] = int(round(pd.to_numeric(df[col], errors='coerce').fillna(0).sum()))
+                
+                tendencia_data.append({
+                    'mes': mes,
+                    'nombre_mes': obtener_nombre_mes(mes),
+                    'total_plazas': total_plazas,
+                    'metricas_cn': metricas_cn,
+                    'periodo': f"{obtener_nombre_mes(mes)} {year}"
+                })
+        
+        return jsonify({
+            'status': 'success',
+            'year': year,
+            'periodo_inicio': periodo_inicio,
+            'periodo_fin': periodo_fin,
+            'tendencia': tendencia_data
+        })
+            
+    except Exception as e:
+        logging.error(f"Error en análisis de tendencia: {e}")
+        return jsonify({'status': 'error', 'message': str(e)}), 500
+
+# ==============================================================================
+# 10. ENDPOINTS ADICIONALES PARA CONSULTAS ESPECÍFICAS - CORREGIDOS
+# ==============================================================================
+
+@app.route('/api/drive-comparativas/consulta-plazas')
+def consulta_plazas_especificas():
+    """Consulta plazas específicas entre períodos - CORREGIDO"""
+    try:
+        year = request.args.get('year', '')
+        periodo = request.args.get('periodo', '')
+        clave_plaza = request.args.get('clave_plaza', '')
+        
+        if not all([year, periodo]):
+            return jsonify({
+                'status': 'error', 
+                'message': 'Se requieren year y periodo'
+            }), 400
+        
+        # Cargar el período solicitado
+        df, info = drive_excel_reader_readonly.load_excel_strict(year, periodo)
+        
+        if df is None:
+            return jsonify({
+                'status': 'error',
+                'message': f'No se pudo cargar el período {periodo}-{year}'
+            }), 400
+        
+        # Filtrar por clave de plaza si se proporciona
+        if clave_plaza and 'Clave_Plaza' in df.columns:
+            resultado = df[df['Clave_Plaza'].astype(str).str.contains(clave_plaza, na=False)]
+            datos = resultado.fillna('').to_dict('records')
+        else:
+            datos = df.head(100).fillna('').to_dict('records')  # Límite de 100 registros
+        
+        return jsonify({
+            'status': 'success',
+            'year': year,
+            'periodo': periodo,
+            'clave_plaza': clave_plaza,
+            'total_resultados': len(datos),
+            'datos': datos,
+            'metadata': info.get('file_info', {})
+        })
+            
+    except Exception as e:
+        logging.error(f"Error en consulta de plazas: {e}")
+        return jsonify({'status': 'error', 'message': str(e)}), 500
+
+@app.route('/api/drive-comparativas/estadisticas-rapidas')
+def get_estadisticas_rapidas():
+    """Estadísticas rápidas de un período específico - CORREGIDO"""
+    try:
+        year = request.args.get('year', '')
+        periodo = request.args.get('periodo', '')
+        
+        if not all([year, periodo]):
+            return jsonify({
+                'status': 'error', 
+                'message': 'Se requieren year y periodo'
+            }), 400
+        
+        # Usar la consulta de solo lectura para estadísticas básicas
+        resultado = drive_excel_reader_readonly.query_excel_data_readonly(
+            year, periodo, query_type='basic_stats'
+        )
+        
+        if resultado.get('status') == 'success':
+            return jsonify({
+                'status': 'success',
+                'year': year,
+                'periodo': periodo,
+                'estadisticas': {
+                    'total_registros': resultado.get('total_rows', 0),
+                    'total_columnas': resultado.get('total_columns', 0),
+                    'columnas': resultado.get('column_names', []),
+                    'muestra': resultado.get('sample_data', [])
+                },
+                'drive_file': resultado.get('drive_file', {})
+            })
+        else:
+            return jsonify({
+                'status': 'error',
+                'message': resultado.get('error', 'Error desconocido')
+            }), 400
+            
+    except Exception as e:
+        logging.error(f"Error en estadísticas rápidas: {e}")
+        return jsonify({'status': 'error', 'message': str(e)}), 500
+
+@app.route('/api/drive-comparativas/status')
+def get_status_comparativas():
+    """Obtiene el estado del sistema de comparativas - CORREGIDO"""
+    try:
+        stats_reader = drive_excel_reader_readonly.get_stats()
+        
+        # Obtener años disponibles
+        years = drive_excel_reader_readonly.get_available_years()
+        
+        return jsonify({
+            'status': 'success',
+            'drive_reader': {
+                'total_requests': stats_reader['total_requests'],
+                'cache_hits': stats_reader['cache_hits'],
+                'drive_downloads': stats_reader['drive_downloads'],
+                'cache_hit_ratio': stats_reader['cache_hit_ratio'],
+                'currently_loaded_files': stats_reader['currently_loaded_files'],
+                'tree_loaded': stats_reader['tree_loaded']
+            },
+            'comparator': {
+                'available': True,
+                'description': 'DriveExcelComparator integrado y funcionando'
+            },
+            'datos_disponibles': {
+                'total_años': len(years),
+                'años': years
+            },
+            'system': {
+                'timestamp': datetime.now().isoformat(),
+                'status': 'operational'
+            }
+        })
+            
+    except Exception as e:
+        logging.error(f"Error obteniendo status: {e}")
+        return jsonify({'status': 'error', 'message': str(e)}), 500
+
+# ==============================================================================
+# 11. ENDPOINTS DE MANTENIMIENTO 
+# ==============================================================================
+
+@app.route('/api/drive-comparativas/limpiar-cache', methods=['POST'])
+def limpiar_cache_comparativas():
+    """Limpia el cache del sistema de comparativas - CORREGIDO"""
+    try:
+        # Agregar método clear_all_cache si no existe
+        if hasattr(drive_excel_reader_readonly, 'loaded_excels'):
+            drive_excel_reader_readonly.loaded_excels.clear()
+        
+        return jsonify({
+            'status': 'success',
+            'message': 'Cache limpiado exitosamente',
+            'timestamp': datetime.now().isoformat()
+        })
+            
+    except Exception as e:
+        logging.error(f"Error limpiando cache: {e}")
+        return jsonify({'status': 'error', 'message': str(e)}), 500
+
+@app.route('/api/drive-comparativas/recargar-arbol', methods=['POST'])
+def recargar_arbol_comparativas():
+    """Recarga el árbol de archivos desde el JSON - CORREGIDO"""
+    try:
+        success = drive_excel_reader_readonly.load_tree()
+        
+        if success:
+            return jsonify({
+                'status': 'success',
+                'message': 'Árbol recargado exitosamente',
+                'timestamp': datetime.now().isoformat()
+            })
+        else:
+            return jsonify({
+                'status': 'error',
+                'message': 'Error al recargar el árbol'
+            }), 500
+            
+    except Exception as e:
+        logging.error(f"Error recargando árbol: {e}")
+        return jsonify({'status': 'error', 'message': str(e)}), 500
+
+# ==============================================================================
+# 12. ENDPOINTS NUEVOS PARA COMPARATIVAS AVANZADAS
+# ==============================================================================
+
+@app.route('/api/drive-comparativas/comparar-avanzado')
+def comparar_periodos_avanzado_unificado():
+    """Compara dos períodos - ENDPOINT PRINCIPAL CORREGIDO"""
+    try:                
+        # Obtener parámetros (soporta años iguales y diferentes)
+        year1 = request.args.get('year1', '')
+        year2 = request.args.get('year2', '')
+        periodo1 = request.args.get('periodo1', '')
+        periodo2 = request.args.get('periodo2', '')
+        
+        # Soporte para parámetros legacy (mismo año)
+        if not year1:
+            year1 = request.args.get('year', '')
+        if not year2:
+            year2 = year1  # Default al mismo año
+        
+        filtro_estado = request.args.get('filtro_estado', 'Todos')
+        metricas = request.args.getlist('metricas')
+        
+        logging.info(f"📥 Parámetros recibidos: year1={year1}, periodo1={periodo1}, year2={year2}, periodo2={periodo2}")
+        
+        if not all([year1, periodo1, year2, periodo2]):
+            return jsonify({
+                'status': 'error', 
+                'message': 'Se requieren year1, periodo1, year2 y periodo2'
+            }), 400
+        
+        # Validar que los años existan
+        years_disponibles = drive_excel_reader_readonly.get_available_years()
+        
+        if year1 not in years_disponibles:
+            return jsonify({
+                'status': 'error',
+                'message': f'El año {year1} no está disponible',
+                'available_years': years_disponibles
+            }), 404
+            
+        if year2 not in years_disponibles:
+            return jsonify({
+                'status': 'error',
+                'message': f'El año {year2} no está disponible', 
+                'available_years': years_disponibles
+            }), 404
+        
+        # Verificar meses disponibles
+        meses_year1 = drive_excel_reader_readonly.get_available_months(year1)
+        meses_year2 = drive_excel_reader_readonly.get_available_months(year2)
+        
+        if periodo1 not in meses_year1:
+            return jsonify({
+                'status': 'error',
+                'message': f'El mes {periodo1} no está disponible para {year1}',
+                'available_months': meses_year1
+            }), 404
+            
+        if periodo2 not in meses_year2:
+            return jsonify({
+                'status': 'error',
+                'message': f'El mes {periodo2} no está disponible para {year2}',
+                'available_months': meses_year2
+            }), 404
+        
+        logging.info(f"🔍 Iniciando comparativa unificada: {year1}-{periodo1} vs {year2}-{periodo2}")
+        
+        # Usar métricas por defecto si no se especifican
+        if not metricas:
+            metricas = ['CN_Inicial_Acum', 'CN_Prim_Acum', 'CN_Sec_Acum', 'CN_Tot_Acum', 'Situación']
+        
+        # Determinar si son años diferentes
+        if year1 != year2:
+            logging.info("🔄 Modo: Comparación entre años diferentes")
+            resultado = drive_excel_comparator.comparar_periodos_avanzado_con_años_diferentes(
+                year1, periodo1, year2, periodo2, filtro_estado, metricas
+            )
+        else:
+            logging.info("🔄 Modo: Comparación en el mismo año")
+            resultado = drive_excel_comparator.comparar_periodos_avanzado(
+                year1, periodo1, periodo2, filtro_estado, metricas
+            )
+        
+        if resultado.get('status') == 'success':
+            logging.info("✅ Comparativa completada exitosamente")
+            
+            # Asegurar que los datos sean serializables - CORREGIDO
+            try:
+                # Primero intentar serialización directa
+                json.dumps(resultado)
+                resultado_serializable = resultado
+                logging.info("✅ Serialización directa exitosa")
+            except (TypeError, ValueError) as e:
+                logging.warning(f"⚠️ Necesita serialización especial: {e}")
+                # Usar serialización segura
+                resultado_serializable = safe_json_serialize(resultado)
+                logging.info("✅ Serialización segura completada")
+            
+            return jsonify(resultado_serializable)
+        else:
+            logging.error(f"❌ Error en comparativa: {resultado.get('error')}")
+            return jsonify({
+                'status': 'error',
+                'message': resultado.get('error', 'Error desconocido en la comparación')
+            }), 400
+            
+    except Exception as e:
+        logging.error(f"❌ ERROR CRÍTICO en comparativa avanzada: {str(e)}")
+        import traceback
+        logging.error(f"Traceback: {traceback.format_exc()}")
+        
+        return jsonify({
+            'status': 'error', 
+            'message': f'Error interno del servidor: {str(e)}'
+        }), 500
+
+@app.route('/api/drive-comparativas/estados-disponibles')
+def estados_disponibles_comparativas():
+    """Obtiene estados disponibles para un período específico"""
+    try:
+        year = request.args.get('year', '')
+        periodo = request.args.get('periodo', '')
+        
+        if not year or not periodo:
+            return jsonify({'error': 'Se requieren year y periodo'}), 400
+        
+        estados = drive_excel_comparator.obtener_estados_disponibles(year, periodo)
+        return jsonify({'estados': estados})
+        
+    except Exception as e:
+        logging.error(f"Error obteniendo estados disponibles: {e}")
+        return jsonify({'error': str(e)}), 500
+
+@app.route('/api/drive-comparativas/metricas-disponibles')
+def metricas_disponibles_comparativas():
+    """Obtiene métricas disponibles para un período específico"""
+    try:
+        year = request.args.get('year', '')
+        periodo = request.args.get('periodo', '')
+        
+        if not year or not periodo:
+            return jsonify({'error': 'Se requieren year y periodo'}), 400
+        
+        metricas = drive_excel_comparator.obtener_metricas_disponibles(year, periodo)
+        return jsonify({'metricas': metricas})
+        
+    except Exception as e:
+        logging.error(f"Error obteniendo métricas disponibles: {e}")
+        return jsonify({'error': str(e)}), 500
+
+# ==============================================================================
+# 13. ENDPOINTS PARA SERIALIZACIÓN SEGURA
+# ==============================================================================
+
+@app.route('/api/safe-serialize-test')
+def safe_serialize_test():
+    """Endpoint de prueba para serialización segura"""
+    try:
+        # Datos de prueba con diferentes tipos
+        test_data = {
+            'string': 'Texto normal',
+            'integer': 42,
+            'float': 3.14159,
+            'nan': float('nan'),
+            'inf': float('inf'),
+            'none': None,
+            'list': [1, 2, 3, float('nan')],
+            'dict': {'key': 'value', 'nan': float('nan')},
+            'timestamp': datetime.now()
+        }
+        
+        # Serializar usando la función del módulo
+        serialized = safe_json_serialize(test_data)
+        
+        return jsonify({
+            'status': 'success',
+            'original': test_data,
+            'serialized': serialized
+        })
+        
+    except Exception as e:
+        logging.error(f"Error en serialización segura: {e}")
+        return jsonify({'status': 'error', 'message': str(e)}), 500
+
+# ==============================================================================
+# 14. ENDPOINTS PARA INFORMACIÓN DEL SISTEMA
+# ==============================================================================
+
+@app.route('/api/system/info')
+def get_system_info():
+    """Obtiene información completa del sistema"""
+    try:
+        # Información del árbol de Drive
+        drive_stats = drive_excel_reader_readonly.get_stats()
+        
+        # Años y meses disponibles
+        years = drive_excel_reader_readonly.get_available_years()
+        total_months = sum(len(drive_excel_reader_readonly.get_available_months(year)) for year in years)
+        
+        # Información del Excel local
+        local_excel_info = {
+            'exists': os.path.exists(Config.EXCEL_PATH),
+            'last_modified': None,
+            'total_plazas': len(df_plazas) if df_plazas is not None else 0
+        }
+        
+        if local_excel_info['exists']:
+            timestamp = os.path.getmtime(Config.EXCEL_PATH)
+            local_excel_info['last_modified'] = datetime.fromtimestamp(timestamp).isoformat()
+        
+        return jsonify({
+            'status': 'success',
+            'system': {
+                'timestamp': datetime.now().isoformat(),
+                'python_version': os.sys.version,
+                'platform': os.sys.platform
+            },
+            'drive_system': {
+                'tree_loaded': drive_stats['tree_loaded'],
+                'total_years': len(years),
+                'total_months': total_months,
+                'cache_performance': {
+                    'hit_ratio': drive_stats['cache_hit_ratio'],
+                    'total_requests': drive_stats['total_requests'],
+                    'cache_hits': drive_stats['cache_hits'],
+                    'drive_downloads': drive_stats['drive_downloads']
+                }
+            },
+            'local_data': local_excel_info,
+            'available_years': years
+        })
+        
+    except Exception as e:
+        logging.error(f"Error obteniendo información del sistema: {e}")
+        return jsonify({'status': 'error', 'message': str(e)}), 500
+
+# ==============================================================================
+# 15. FUNCIÓN AUXILIAR PARA OBTENER NOMBRE DEL MES
+# ==============================================================================
+
+def obtener_nombre_mes(numero_mes: str) -> str:
+    """Convierte número de mes a nombre"""
+    meses = {
+        '01': 'Enero', '02': 'Febrero', '03': 'Marzo', '04': 'Abril',
+        '05': 'Mayo', '06': 'Junio', '07': 'Julio', '08': 'Agosto',
+        '09': 'Septiembre', '10': 'Octubre', '11': 'Noviembre', '12': 'Diciembre'
+    }
+    return meses.get(numero_mes, f'Mes {numero_mes}')
+
+# ==============================================================================
+# 16. ENDPOINT PARA OBTENER TODOS LOS DATOS DISPONIBLES
+# ==============================================================================
+
+@app.route('/api/drive-comparativas/datos-completos')
+def get_datos_completos():
+    """Obtiene todos los datos disponibles del sistema"""
+    try:
+        años, meses_por_año = obtener_años_desde_arbol_json()
+        
+        datos_completos = {
+            'años_disponibles': años,
+            'meses_por_año': meses_por_año,
+            'estadisticas_sistema': drive_excel_reader_readonly.get_stats(),
+            'ultima_actualizacion': datetime.now().isoformat()
+        }
+        
+        return jsonify({
+            'status': 'success',
+            'datos': datos_completos
+        })
+        
+    except Exception as e:
+        logging.error(f"Error obteniendo datos completos: {e}")
+        return jsonify({'status': 'error', 'message': str(e)}), 500
+
+logging.info("✅ Todos los endpoints de comparativas han sido corregidos y están listos")
+
+# ==============================================================================
+# 17. PUNTO DE ENTRADA
+# ==============================================================================
+@app.route('/api/drive-comparativas/buscar-estados')
+def buscar_estados_comparativa():
+    """Busca estados para la barra de búsqueda - SOLO ESTADOS"""
+    try:
+        query = request.args.get('q', '').strip().lower()
+        
+        if not query:
+            return jsonify({
+                'status': 'success',
+                'query': query,
+                'resultados': [],
+                'total_resultados': 0
+            })
+        
+        # Usar los datos locales de plazas para buscar estados
+        if df_plazas is None or df_plazas.empty:
+            return jsonify({
+                'status': 'error',
+                'message': 'No hay datos disponibles'
+            }), 503
+        
+        # Obtener estados únicos que coincidan con la búsqueda
+        if Config.COLUMNA_ESTADO in df_plazas.columns:
+            estados_unicos = df_plazas[Config.COLUMNA_ESTADO].dropna().unique()
+            
+            resultados = []
+            for estado in estados_unicos:
+                estado_str = str(estado).strip()
+                estado_lower = estado_str.lower()
+                
+                if query in estado_lower:
+                    match_type = 'exact' if query == estado_lower else 'partial'
+                    resultados.append({
+                        'nombre': estado_str,
+                        'match_type': match_type
+                    })
+            
+            # Ordenar: exact matches primero, luego alfabéticamente
+            resultados.sort(key=lambda x: (x['match_type'] != 'exact', x['nombre']))
+            
+            return jsonify({
+                'status': 'success',
+                'query': query,
+                'resultados': resultados,
+                'total_resultados': len(resultados)
+            })
+        else:
+            return jsonify({
+                'status': 'error',
+                'message': 'Columna de estados no disponible'
+            }), 400
+            
+    except Exception as e:
+        logging.error(f"Error buscando estados: {e}")
+        return jsonify({'status': 'error', 'message': str(e)}), 500
+
+# ==============================================================================
+# 19. PUNTO DE ENTRADA
 # ==============================================================================
 if __name__ == '__main__':
     if df_plazas is None:
