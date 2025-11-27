@@ -151,194 +151,253 @@
         <div id="stats-view" class="view hidden">
             <h1>Estadísticas</h1>
             
-            <div class="stats-grid">
-                <div class="stat-card">
-                    <div class="stat-icon">🏢</div>
-                    <span class="stat-label">Total de Plazas</span>
-                    <span class="stat-number" id="total-plazas">0</span>
-                    <div class="stat-sub-number" id="plazas-operacion">0 en operación</div>
-                    <div class="stat-description">Plazas en operación</div>
-                </div>
-                
-                <div class="stat-card">
-                    <div class="stat-icon">🗺️</div>
-                    <span class="stat-label">Estados con Plazas</span>
-                    <span class="stat-number" id="total-estados">0</span>
-                    <div class="stat-description">Cobertura a nivel nacional</div>
+            <!-- Navegación entre sub-vistas DENTRO de la vista de Estadísticas -->
+            <div class="stats-nav">
+                <div class="stats-nav-options">
+                    <button class="stats-nav-btn active" data-subview="general-stats">
+                        <span class="nav-icon">📊</span>
+                        <span class="nav-text">Estadísticas</span>
+                    </button>
+                    <button class="stats-nav-btn" data-subview="comparativas-stats">
+                        <span class="nav-icon">📈</span>
+                        <span class="nav-text">Comparativas por Período</span>
+                    </button>
                 </div>
             </div>
-
-            <div class="stats-section">
-                <h2>Estados Destacados</h2>
-                <div class="stats-grid">
-                    <div class="stat-card highlight-card">
-                        <div class="stat-icon">🥇</div>
-                        <span class="stat-label">Estado con Más Plazas</span>
-                        <span class="stat-name" id="estado-mas-plazas-nombre">-</span>
-                        <span class="stat-number" id="estado-mas-plazas-cantidad">0</span>
-                        <div class="stat-description">Mayor presencia en el sistema</div>
-                    </div>
-                    
-                    <div class="stat-card highlight-card">
-                        <div class="stat-icon">📡</div>
-                        <span class="stat-label">Mayor Conectividad</span>
-                        <span class="stat-name" id="estado-mayor-conectividad-nombre">-</span>
-                        <span class="stat-number" id="estado-mayor-conectividad-porcentaje">0%</span>
-                        <div class="stat-description">Porcentaje de conectividad instalada</div>
-                    </div>
-                    
-                    <div class="stat-card highlight-card">
-                        <div class="stat-icon">⚡</div>
-                        <span class="stat-label">Mayor Operación</span>
-                        <span class="stat-name" id="estado-mas-operacion-nombre">-</span>
-                        <span class="stat-number" id="estado-mas-operacion-porcentaje">0%</span>
-                        <div class="stat-description">Plazas en operación</div>
-                    </div>
-                    
-                    <div class="stat-card highlight-card">
-                        <div class="stat-icon">⏸️</div>
-                        <span class="stat-label">Mayor Suspensión</span>
-                        <span class="stat-name" id="estado-mas-suspension-nombre">-</span>
-                        <span class="stat-number" id="estado-mas-suspension-porcentaje">0%</span>
-                        <div class="stat-description">Plazas en suspensión temporal</div>
+            
+            <!-- Contenedor para las sub-vistas -->
+            <div class="stats-subview-container">
+                <!-- Sub-vista de Estadísticas Generales -->
+                <div id="general-stats-view" class="stats-subview">
+                    <div class="stats-grid">
+                        <div class="stat-card">
+                            <div class="stat-icon">🏢</div>
+                            <span class="stat-label">Total de Plazas</span>
+                            <span class="stat-number" id="total-plazas">0</span>
+                            <div class="stat-sub-number" id="plazas-operacion">0 en operación</div>
+                            <div class="stat-description">Plazas en operación</div>
+                        </div>
+                        
+                        <div class="stat-card">
+                            <div class="stat-icon">🗺️</div>
+                            <span class="stat-label">Estados con Plazas</span>
+                            <span class="stat-number" id="total-estados">0</span>
+                            <div class="stat-description">Cobertura a nivel nacional</div>
+                        </div>
                     </div>
 
-                    <div class="stat-card highlight-card">
-                        <div class="stat-icon">👶</div>
-                        <span class="stat-label">#1 CN Inicial</span>
-                        <span class="stat-name" id="estado-mas-cn-inicial-nombre">-</span>
-                        <span class="stat-number" id="estado-mas-cn-inicial-cantidad">0</span>
-                        <div class="stat-description">Mayor CN Inicial Acumulado</div>
-                    </div>
-                    
-                    <div class="stat-card highlight-card">
-                        <div class="stat-icon">🎒</div>
-                        <span class="stat-label">#1 CN Primaria</span>
-                        <span class="stat-name" id="estado-mas-cn-primaria-nombre">-</span>
-                        <span class="stat-number" id="estado-mas-cn-primaria-cantidad">0</span>
-                        <div class="stat-description">Mayor CN Primaria Acumulado</div>
-                    </div>
-                    
-                    <div class="stat-card highlight-card">
-                        <div class="stat-icon">📚</div>
-                        <span class="stat-label">#1 CN Secundaria</span>
-                        <span class="stat-name" id="estado-mas-cn-secundaria-nombre">-</span>
-                        <span class="stat-number" id="estado-mas-cn-secundaria-cantidad">0</span>
-                        <div class="stat-description">Mayor CN Secundaria Acumulado</div>
-                    </div>
-                </div>
-            </div>
+                    <div class="stats-section">
+                        <h2>Estados Destacados</h2>
+                        <div class="stats-grid">
+                            <div class="stat-card highlight-card">
+                                <div class="stat-icon">🥇</div>
+                                <span class="stat-label">Estado con Más Plazas</span>
+                                <span class="stat-name" id="estado-mas-plazas-nombre">-</span>
+                                <span class="stat-number" id="estado-mas-plazas-cantidad">0</span>
+                                <div class="stat-description">Mayor presencia en el sistema</div>
+                            </div>
+                            
+                            <div class="stat-card highlight-card">
+                                <div class="stat-icon">📡</div>
+                                <span class="stat-label">Mayor Conectividad</span>
+                                <span class="stat-name" id="estado-mayor-conectividad-nombre">-</span>
+                                <span class="stat-number" id="estado-mayor-conectividad-porcentaje">0%</span>
+                                <div class="stat-description">Porcentaje de conectividad instalada</div>
+                            </div>
+                            
+                            <div class="stat-card highlight-card">
+                                <div class="stat-icon">⚡</div>
+                                <span class="stat-label">Mayor Operación</span>
+                                <span class="stat-name" id="estado-mas-operacion-nombre">-</span>
+                                <span class="stat-number" id="estado-mas-operacion-porcentaje">0%</span>
+                                <div class="stat-description">Plazas en operación</div>
+                            </div>
+                            
+                            <div class="stat-card highlight-card">
+                                <div class="stat-icon">⏸️</div>
+                                <span class="stat-label">Mayor Suspensión</span>
+                                <span class="stat-name" id="estado-mas-suspension-nombre">-</span>
+                                <span class="stat-number" id="estado-mas-suspension-porcentaje">0%</span>
+                                <div class="stat-description">Plazas en suspensión temporal</div>
+                            </div>
 
-            <div class="cn-stats-section">
-                <h2>📚 Estadísticas Conclusiones de Nivel (CN)</h2>
-                
-                <!-- Resumen CN Cards -->
-                <div id="cn-resumen-cards" class="cn-grid">
-                    <div class="cn-card">
-                        <h4>📊 Resumen Nacional</h4>
-                        <div class="cn-stats-grid">
-                            <div class="cn-stat-item" id="cn-inicial-item">
-                                <span class="cn-stat-label">CN Inicial Acum</span>
-                                <span class="cn-stat-value" id="cn-inicial-valor">0</span>
-                                <span class="cn-stat-subvalue" id="cn-inicial-subvalor">Plazas en operación: 0</span>
+                            <div class="stat-card highlight-card">
+                                <div class="stat-icon">👶</div>
+                                <span class="stat-label">#1 CN Inicial</span>
+                                <span class="stat-name" id="estado-mas-cn-inicial-nombre">-</span>
+                                <span class="stat-number" id="estado-mas-cn-inicial-cantidad">0</span>
+                                <div class="stat-description">Mayor CN Inicial Acumulado</div>
                             </div>
-                            <div class="cn-stat-item" id="cn-primaria-item">
-                                <span class="cn-stat-label">CN Prim Acum</span>
-                                <span class="cn-stat-value" id="cn-primaria-valor">0</span>
-                                <span class="cn-stat-subvalue" id="cn-primaria-subvalor">Plazas en operación: 0</span>
+                            
+                            <div class="stat-card highlight-card">
+                                <div class="stat-icon">🎒</div>
+                                <span class="stat-label">#1 CN Primaria</span>
+                                <span class="stat-name" id="estado-mas-cn-primaria-nombre">-</span>
+                                <span class="stat-number" id="estado-mas-cn-primaria-cantidad">0</span>
+                                <div class="stat-description">Mayor CN Primaria Acumulado</div>
                             </div>
-                            <div class="cn-stat-item" id="cn-secundaria-item">
-                                <span class="cn-stat-label">CN Sec Acum</span>
-                                <span class="cn-stat-value" id="cn-secundaria-valor">0</span>
-                                <span class="cn-stat-subvalue" id="cn-secundaria-subvalor">Plazas en operación: 0</span>
-                            </div>
-                            <div class="cn-stat-item cn-total-item" id="cn-total-item">
-                                <span class="cn-stat-label">CN TOTAL</span>
-                                <span class="cn-stat-value" id="cn-total-valor">0</span>
-                                <span class="cn-stat-subvalue" id="cn-total-subvalor">Plazas en operación: 0</span>
+                            
+                            <div class="stat-card highlight-card">
+                                <div class="stat-icon">📚</div>
+                                <span class="stat-label">#1 CN Secundaria</span>
+                                <span class="stat-name" id="estado-mas-cn-secundaria-nombre">-</span>
+                                <span class="stat-number" id="estado-mas-cn-secundaria-cantidad">0</span>
+                                <div class="stat-description">Mayor CN Secundaria Acumulado</div>
                             </div>
                         </div>
                     </div>
-                    
-                    <div class="cn-card" id="top5-card">
-                        <h4>🏆 Top 5 Estados - CN Total</h4>
-                        <div class="cn-stats-grid" id="top5-grid">
-                            <!-- Se llenará dinámicamente -->
+
+                    <div class="cn-stats-section">
+                        <h2>📚 Estadísticas Conclusiones de Nivel (CN)</h2>
+                        
+                        <!-- Resumen CN Cards -->
+                        <div id="cn-resumen-cards" class="cn-grid">
+                            <div class="cn-card">
+                                <h4>📊 Resumen Nacional</h4>
+                                <div class="cn-stats-grid">
+                                    <div class="cn-stat-item" id="cn-inicial-item">
+                                        <span class="cn-stat-label">CN Inicial Acum</span>
+                                        <span class="cn-stat-value" id="cn-inicial-valor">0</span>
+                                        <span class="cn-stat-subvalue" id="cn-inicial-subvalor">Plazas en operación: 0</span>
+                                    </div>
+                                    <div class="cn-stat-item" id="cn-primaria-item">
+                                        <span class="cn-stat-label">CN Prim Acum</span>
+                                        <span class="cn-stat-value" id="cn-primaria-valor">0</span>
+                                        <span class="cn-stat-subvalue" id="cn-primaria-subvalor">Plazas en operación: 0</span>
+                                    </div>
+                                    <div class="cn-stat-item" id="cn-secundaria-item">
+                                        <span class="cn-stat-label">CN Sec Acum</span>
+                                        <span class="cn-stat-value" id="cn-secundaria-valor">0</span>
+                                        <span class="cn-stat-subvalue" id="cn-secundaria-subvalor">Plazas en operación: 0</span>
+                                    </div>
+                                    <div class="cn-stat-item cn-total-item" id="cn-total-item">
+                                        <span class="cn-stat-label">CN TOTAL</span>
+                                        <span class="cn-stat-value" id="cn-total-valor">0</span>
+                                        <span class="cn-stat-subvalue" id="cn-total-subvalor">Plazas en operación: 0</span>
+                                    </div>
+                                </div>
+                            </div>
+                            
+                            <div class="cn-card" id="top5-card">
+                                <h4>🏆 Top 5 Estados - CN Total</h4>
+                                <div class="cn-stats-grid" id="top5-grid">
+                                    <!-- Se llenará dinámicamente -->
+                                </div>
+                            </div>
+                        </div>
+                        
+                        <!-- Top 5 Lists -->
+                        <div class="cn-top5-grid">
+                            <div class="cn-top5-section">
+                                <h3>🏆 Top 5 Estados - CN Inicial</h3>
+                                <div id="cn-top5-inicial-list" class="top10-grid">
+                                    <!-- Se llenará dinámicamente -->
+                                </div>
+                            </div>
+                            
+                            <div class="cn-top5-section">
+                                <h3>🎒 Top 5 Estados - CN Primaria</h3>
+                                <div id="cn-top5-primaria-list" class="top10-grid">
+                                    <!-- Se llenará dinámicamente -->
+                                </div>
+                            </div>
+                            
+                            <div class="cn-top5-section">
+                                <h3>📚 Top 5 Estados - CN Secundaria</h3>
+                                <div id="cn-top5-secundaria-list" class="top10-grid">
+                                    <!-- Se llenará dinámicamente -->
+                                </div>
+                            </div>
+                        </div>
+                        
+                        <!-- Tabla de Estados CN -->
+                        <h3>📋 Datos Detallados por Estado</h3>
+                        <div class="cn-table-container">
+                            <table id="cn-estados-table" class="cn-table">
+                                <thead>
+                                    <tr>
+                                        <th>
+                                            <button class="sort-btn" data-sort="estado" data-order="asc">
+                                                Estado ▲
+                                            </button>
+                                        </th>
+                                        <th>
+                                            <button class="sort-btn" data-sort="total_plazas" data-order="desc">
+                                                Total Plazas ▼
+                                            </button>
+                                        </th>
+                                        <th>
+                                            <button class="sort-btn" data-sort="cn_inicial" data-order="desc">
+                                                CN Inicial ▼
+                                            </button>
+                                        </th>
+                                        <th>
+                                            <button class="sort-btn" data-sort="cn_primaria" data-order="desc">
+                                                CN Primaria ▼
+                                            </button>
+                                        </th>
+                                        <th>
+                                            <button class="sort-btn" data-sort="cn_secundaria" data-order="desc">
+                                                CN Secundaria ▼
+                                            </button>
+                                        </th>
+                                        <th>
+                                            <button class="sort-btn" data-sort="cn_total" data-order="desc">
+                                                CN Total ▼
+                                            </button>
+                                        </th>
+                                        <th>
+                                            <button class="sort-btn" data-sort="pct_nacional" data-order="desc">
+                                                % Sobre Nacional ▼
+                                            </button>
+                                        </th>
+                                    </tr>
+                                </thead>
+                                <tbody id="cn-estados-tbody">
+                                    <!-- Se llenará dinámicamente -->
+                                </tbody>
+                            </table>
                         </div>
                     </div>
                 </div>
-                
-                <!-- Top 5 Lists -->
-                <div class="cn-top5-grid">
-                    <div class="cn-top5-section">
-                        <h3>🏆 Top 5 Estados - CN Inicial</h3>
-                        <div id="cn-top5-inicial-list" class="top10-grid">
-                            <!-- Se llenará dinámicamente -->
+
+                <!-- Sub-vista de Comparativas -->
+                <div id="comparativas-stats-view" class="stats-subview hidden">
+                    <div class="comparativas-container">
+                        <h2>📈 Comparativas por Período</h2>
+                        <p>Compara datos entre diferentes períodos acumulativos</p>
+                        
+                        <div class="periodo-selector">
+                            <h3>Seleccionar Períodos a Comparar</h3>
+                            <div class="selector-grid">
+                                <div class="selector-group">
+                                    <label for="comparativa-year">Año</label>
+                                    <select id="comparativa-year">
+                                        <option value="">Cargando años...</option>
+                                    </select>
+                                </div>
+                                <div class="selector-group">
+                                    <label for="comparativa-periodo1">Período 1</label>
+                                    <select id="comparativa-periodo1" disabled>
+                                        <option value="">Selecciona año primero</option>
+                                    </select>
+                                </div>
+                                <div class="selector-group">
+                                    <label for="comparativa-periodo2">Período 2</label>
+                                    <select id="comparativa-periodo2" disabled>
+                                        <option value="">Selecciona año primero</option>
+                                    </select>
+                                </div>
+                            </div>
+                            <button id="comparar-periodos-btn" class="comparar-btn" disabled>
+                                🔄 Comparar Períodos
+                            </button>
+                        </div>
+                        
+                        <div id="comparativa-resultados" class="comparativa-resultados hidden">
+                            <!-- Aquí se mostrarán los resultados de la comparativa -->
                         </div>
                     </div>
-                    
-                    <div class="cn-top5-section">
-                        <h3>🎒 Top 5 Estados - CN Primaria</h3>
-                        <div id="cn-top5-primaria-list" class="top10-grid">
-                            <!-- Se llenará dinámicamente -->
-                        </div>
-                    </div>
-                    
-                    <div class="cn-top5-section">
-                        <h3>📚 Top 5 Estados - CN Secundaria</h3>
-                        <div id="cn-top5-secundaria-list" class="top10-grid">
-                            <!-- Se llenará dinámicamente -->
-                        </div>
-                    </div>
-                </div>
-                
-                <!-- Tabla de Estados CN -->
-                <h3>📋 Datos Detallados por Estado</h3>
-                <div class="cn-table-container">
-                    <table id="cn-estados-table" class="cn-table">
-                        <thead>
-                            <tr>
-                                <th>
-                                    <button class="sort-btn" data-sort="estado" data-order="asc">
-                                        Estado ▲
-                                    </button>
-                                </th>
-                                <th>
-                                    <button class="sort-btn" data-sort="total_plazas" data-order="desc">
-                                        Total Plazas ▼
-                                    </button>
-                                </th>
-                                <th>
-                                    <button class="sort-btn" data-sort="cn_inicial" data-order="desc">
-                                        CN Inicial ▼
-                                    </button>
-                                </th>
-                                <th>
-                                    <button class="sort-btn" data-sort="cn_primaria" data-order="desc">
-                                        CN Primaria ▼
-                                    </button>
-                                </th>
-                                <th>
-                                    <button class="sort-btn" data-sort="cn_secundaria" data-order="desc">
-                                        CN Secundaria ▼
-                                    </button>
-                                </th>
-                                <th>
-                                    <button class="sort-btn" data-sort="cn_total" data-order="desc">
-                                        CN Total ▼
-                                    </button>
-                                </th>
-                                <th>
-                                    <button class="sort-btn" data-sort="pct_nacional" data-order="desc">
-                                        % Sobre Nacional ▼
-                                    </button>
-                                </th>
-                            </tr>
-                        </thead>
-                        <tbody id="cn-estados-tbody">
-                            <!-- Se llenará dinámicamente -->
-                        </tbody>
-                    </table>
                 </div>
             </div>
 
@@ -474,6 +533,609 @@
         <div class="no-images">📷 No se encontraron imágenes para esta plaza</div>
     </template>
 
+    <!-- Template para resultados de comparativas -->
+<template id="comparativa-resultados-template">
+    <div class="comparativa-resumen-container">
+        <!-- Resumen General en Cards -->
+        <div class="resumen-general-grid">
+            <h3 class="seccion-titulo">📊 Resumen General de la Comparación</h3>
+            <div class="resumen-cards">
+                <div class="resumen-card">
+                    <div class="resumen-icon">📅</div>
+                    <div class="resumen-content">
+                        <span class="resumen-label">Período 1</span>
+                        <span class="resumen-valor" data-bind="total_periodo1">0</span>
+                        <span class="resumen-desc">Total Plazas</span>
+                    </div>
+                </div>
+                
+                <div class="resumen-card">
+                    <div class="resumen-icon">📅</div>
+                    <div class="resumen-content">
+                        <span class="resumen-label">Período 2</span>
+                        <span class="resumen-valor" data-bind="total_periodo2">0</span>
+                        <span class="resumen-desc">Total Plazas</span>
+                    </div>
+                </div>
+                
+                <div class="resumen-card diferencia-card">
+                    <div class="resumen-icon">📈</div>
+                    <div class="resumen-content">
+                        <span class="resumen-label">Diferencia</span>
+                        <span class="resumen-valor" data-bind="diferencia_total">0</span>
+                        <span class="resumen-desc" data-bind="tendencia_diferencia">Variación</span>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Tabla Comparativa -->
+        <div class="comparativa-tabla-container">
+            <h3 class="seccion-titulo">📋 Comparativa Detallada por Métrica</h3>
+            <div class="table-responsive">
+                <table id="tabla-comparativa" class="comparativa-table">
+                    <thead>
+                        <tr>
+                            <th>Métrica</th>
+                            <th>Período 1<br><small data-bind="periodo1_nombre">Periodo 1</small></th>
+                            <th>Período 2<br><small data-bind="periodo2_nombre">Periodo 2</small></th>
+                            <th>Diferencia</th>
+                            <th>Tendencia</th>
+                            <th>% Cambio</th>
+                        </tr>
+                    </thead>
+                    <tbody id="comparativa-tbody"></tbody>
+                </table>
+            </div>
+        </div>
+
+        <!-- Tabla de Estados -->
+        <div class="comparativa-estados-container">
+            <h3 class="seccion-titulo">🏛️ Comparativa por Estado</h3>
+            <p class="seccion-descripcion">Haz clic en cualquier estado para ver detalles completos de la comparación</p>
+            
+            <div class="estados-controls">
+                <div class="search-estados">
+                    <input type="text" id="estados-search" placeholder="Buscar estado..." class="search-input">
+                </div>
+                <div class="estados-stats">
+                    <span id="estados-total">0 estados</span>
+                </div>
+            </div>
+
+            <div class="table-responsive">
+                <table id="tabla-estados-comparativa" class="estados-table">
+                    <thead>
+                        <tr>
+                            <th>Estado</th>
+                            <th>Plazas P1</th>
+                            <th>Plazas P2</th>
+                            <th>Cambio Plazas</th>
+                            <th>CN Inicial P1</th>
+                            <th>CN Inicial P2</th>
+                            <th>% Cambio</th>
+                            <th>CN Primaria P1</th>
+                            <th>CN Primaria P2</th>
+                            <th>% Cambio</th>
+                            <th>CN Secundaria P1</th>
+                            <th>CN Secundaria P2</th>
+                            <th>% Cambio</th>
+                            <th>CN Total P1</th>
+                            <th>CN Total P2</th>
+                            <th>% Cambio</th>
+                        </tr>
+                    </thead>
+                    <tbody id="estados-comparativa-tbody">
+                        <!-- Se llena dinámicamente -->
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+    <!-- Agregar esto dentro del template "comparativa-resultados-template" -->
+<!-- Después de la sección de Tabla de Estados -->
+
+<!-- Sección: Análisis Estadístico Avanzado -->
+<div class="analisis-avanzado-container">
+    <h3 class="seccion-titulo">📈 Análisis Estadístico Avanzado</h3>
+    <p class="seccion-descripcion">Métricas compuestas y análisis de tendencias</p>
+
+    <!-- Grid de Métricas Principales -->
+    <div class="metricas-avanzadas-grid">
+        <!-- Tarjeta 1: Tasa de Crecimiento -->
+        <div class="metrica-avanzada-card">
+            <div class="metrica-avanzada-header">
+                <span class="metrica-icon">📊</span>
+                <h4>Tasa de Crecimiento</h4>
+            </div>
+            <div class="metrica-avanzada-content">
+                <div class="metrica-valor" data-bind="tasa_crecimiento">0%</div>
+                <div class="metrica-descripcion">Variación porcentual total entre períodos</div>
+                <div class="metrica-detalle" data-bind="detalle_crecimiento">
+                    Basado en el cambio neto de plazas
+                </div>
+            </div>
+        </div>
+
+        <!-- Tarjeta 2: Eficiencia Operativa -->
+        <div class="metrica-avanzada-card">
+            <div class="metrica-avanzada-header">
+                <span class="metrica-icon">⚡</span>
+                <h4>Eficiencia Operativa</h4>
+            </div>
+            <div class="metrica-avanzada-content">
+                <div class="metrica-valor" data-bind="eficiencia_operativa">0%</div>
+                <div class="metrica-descripcion">CN Total por plaza en operación</div>
+                <div class="metrica-detalle" data-bind="detalle_eficiencia">
+                    CN Total / Total Plazas
+                </div>
+            </div>
+        </div>
+
+        <!-- Tarjeta 3: Estado Más Dinámico -->
+        <div class="metrica-avanzada-card">
+            <div class="metrica-avanzada-header">
+                <span class="metrica-icon">🚀</span>
+                <h4>Estado Más Dinámico</h4>
+            </div>
+            <div class="metrica-avanzada-content">
+                <div class="metrica-valor-estado" data-bind="estado_mas_dinamico">N/A</div>
+                <div class="metrica-descripcion">Mayor cambio absoluto en CN Total</div>
+                <div class="metrica-detalle" data-bind="detalle_dinamico">
+                    Basado en variación absoluta
+                </div>
+            </div>
+        </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Tarjeta 4B: Comparativo Distribución CN -->
+<div class="metrica-avanzada-card">
+    <div class="metrica-avanzada-header">
+        <span class="metrica-icon">📊</span>
+        <h4>Comparativo Distribución CN</h4>
+    </div>
+
+    <div class="metrica-avanzada-content">
+        <div class="distribucion-cn-container" data-bind="distribucion_cn_comparativa">
+            <!-- Aquí se inyectará dinámicamente el comparativo por JS -->
+        </div>
+
+        <div class="metrica-descripcion">Comparativo Período 1 vs Período 2</div>
+
+        <div class="metrica-detalle" data-bind="detalle_distribucion_comparativa">
+            Distribución comparativa de CN
+        </div>
+    </div>
+</div>
+    <!-- Tabla de Ranking de Estados -->
+    <div class="ranking-estados-container">
+        <h4>🏆 Ranking de Estados por Desempeño</h4>
+        <p class="seccion-descripcion">Ordenados por puntaje compuesto de crecimiento y eficiencia</p>
+        
+        <div class="ranking-controls">
+            <div class="ranking-stats">
+                <span id="ranking-total">0 estados evaluados</span>
+            </div>
+        </div>
+
+        <div class="table-responsive">
+            <table class="ranking-table">
+                <thead>
+                    <tr>
+                        <th>Pos</th>
+                        <th>Estado</th>
+                        <th>Puntaje</th>
+                        <th>Cambio CN Total</th>
+                        <th>% Crecimiento</th>
+                        <th>Total Plazas</th>
+                        <th>Eficiencia</th>
+                    </tr>
+                </thead>
+                <tbody id="ranking-estados-tbody">
+                    <!-- Se llenará dinámicamente -->
+                </tbody>
+            </table>
+        </div>
+    </div>
+
+    <!-- Análisis de Tendencias -->
+    <div class="tendencias-container">
+        <h4>📋 Análisis de Tendencias por Categoría</h4>
+        
+        <div class="tendencias-grid">
+            <!-- Tendencia CN Inicial -->
+            <div class="tendencia-categoria">
+                <div class="tendencia-header">
+                    <span class="tendencia-icon">👶</span>
+                    <h5>CN Inicial</h5>
+                </div>
+                <div class="tendencia-content">
+                    <div class="tendencia-stats">
+                        <span class="tendencia-valor" data-bind="tendencia_inicial_valor">+0%</span>
+                        <span class="tendencia-desc" data-bind="tendencia_inicial_desc">Crecimiento</span>
+                    </div>
+                    <div class="tendencia-detalle" data-bind="tendencia_inicial_detalle">
+                        Estados con mayor crecimiento: -
+                    </div>
+                </div>
+            </div>
+
+            <!-- Tendencia CN Primaria -->
+            <div class="tendencia-categoria">
+                <div class="tendencia-header">
+                    <span class="tendencia-icon">🎒</span>
+                    <h5>CN Primaria</h5>
+                </div>
+                <div class="tendencia-content">
+                    <div class="tendencia-stats">
+                        <span class="tendencia-valor" data-bind="tendencia_primaria_valor">+0%</span>
+                        <span class="tendencia-desc" data-bind="tendencia_primaria_desc">Crecimiento</span>
+                    </div>
+                    <div class="tendencia-detalle" data-bind="tendencia_primaria_detalle">
+                        Estados con mayor crecimiento: -
+                    </div>
+                </div>
+            </div>
+
+            <!-- Tendencia CN Secundaria -->
+            <div class="tendencia-categoria">
+                <div class="tendencia-header">
+                    <span class="tendencia-icon">📚</span>
+                    <h5>CN Secundaria</h5>
+                </div>
+                <div class="tendencia-content">
+                    <div class="tendencia-stats">
+                        <span class="tendencia-valor" data-bind="tendencia_secundaria_valor">+0%</span>
+                        <span class="tendencia-desc" data-bind="tendencia_secundaria_desc">Crecimiento</span>
+                    </div>
+                    <div class="tendencia-detalle" data-bind="tendencia_secundaria_detalle">
+                        Estados con mayor crecimiento: -
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Resumen Ejecutivo -->
+    <div class="resumen-ejecutivo">
+        <h4>📋 Resumen </h4>
+        <div class="resumen-content">
+            <div class="resumen-item">
+                <span class="resumen-label">Período Analizado:</span>
+                <span class="resumen-valor" data-bind="resumen_periodo">-</span>
+            </div>
+            <div class="resumen-item">
+                <span class="resumen-label">Tendencia General:</span>
+                <span class="resumen-valor" data-bind="resumen_tendencia">-</span>
+            </div>
+            <div class="resumen-item">
+                <span class="resumen-label">Estados con Crecimiento:</span>
+                <span class="resumen-valor" data-bind="resumen_estados_crecimiento">0</span>
+            </div>
+            <div class="resumen-item">
+                <span class="resumen-label">Estados con Decrecimiento:</span>
+                <span class="resumen-valor" data-bind="resumen_estados_decrecimiento">0</span>
+            </div>
+            <div class="resumen-item">
+                <span class="resumen-label">Recomendación:</span>
+                <span class="resumen-valor" data-bind="resumen_recomendacion">-</span>
+            </div>
+        </div>
+    </div>
+</div>
+</template>
+
+<!-- Template para fila de estado-->
+<template id="tpl-fila-estado">
+    <tr class="estado-row" data-estado="{{estado}}">
+        <td class="estado-nombre" title="Haz clic para ver detalles">
+            <strong>{{estado}}</strong>
+        </td>
+        
+        <!-- Plazas -->
+        <td>{{plazasP1}}</td>
+        <td>{{plazasP2}}</td>
+        <td class="{{claseCambioPlazas}}">{{cambioPlazas}}</td>
+        
+        <!-- CN Inicial -->
+        <td>{{cnInicialP1}}</td>
+        <td>{{cnInicialP2}}</td>
+        <td class="{{cnInicialClaseCambio}}">{{cnInicialPorcentaje}}</td>
+        
+        <!-- CN Primaria -->
+        <td>{{cnPrimariaP1}}</td>
+        <td>{{cnPrimariaP2}}</td>
+        <td class="{{cnPrimariaClaseCambio}}">{{cnPrimariaPorcentaje}}</td>
+        
+        <!-- CN Secundaria -->
+        <td>{{cnSecundariaP1}}</td>
+        <td>{{cnSecundariaP2}}</td>
+        <td class="{{cnSecundariaClaseCambio}}">{{cnSecundariaPorcentaje}}</td>
+        
+        <!-- CN Total -->
+        <td>{{cnTotalP1}}</td>
+        <td>{{cnTotalP2}}</td>
+        <td class="{{cnTotalClaseCambio}}">{{cnTotalPorcentaje}}</td>
+    </tr>
+</template>
+
+<!-- Template para estado modal -->
+<template id="tpl-estado-modal">
+    <div class="modal-estado-resumen">
+        <div class="resumen-cards-mini">
+            <div class="resumen-card-mini">
+                <div class="resumen-icon-mini">🏢</div>
+                <div class="resumen-content-mini">
+                    <span class="resumen-label-mini">Plazas Período 1</span>
+                    <span class="resumen-valor-mini">{{plazasP1}}</span>
+                </div>
+            </div>
+
+            <div class="resumen-card-mini">
+                <div class="resumen-icon-mini">🏢</div>
+                <div class="resumen-content-mini">
+                    <span class="resumen-label-mini">Plazas Período 2</span>
+                    <span class="resumen-valor-mini">{{plazasP2}}</span>
+                </div>
+            </div>
+
+            <div class="resumen-card-mini {{claseCambioPlazas}}">
+                <div class="resumen-icon-mini">📈</div>
+                <div class="resumen-content-mini">
+                    <span class="resumen-label-mini">Cambio Neto</span>
+                    <span class="resumen-valor-mini">{{cambioPlazas}}</span>
+                    <span class="resumen-desc-mini">{{porcentajeCambioPlazas}}</span>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div class="modal-estado-metricas">
+        <h4>📚 Métricas CN - Comparativa Detallada</h4>
+        <div class="metricas-grid-modal">
+            {{metricasHTML}}
+        </div>
+    </div>
+
+    <div class="modal-estado-analisis">
+        <h4>📈 Análisis de Tendencia</h4>
+        <div class="analisis-content">
+            {{analisisHTML}}
+        </div>
+    </div>
+</template>
+
+<!-- Template para métrica modal -->
+<template id="tpl-metrica-modal">
+    <div class="metrica-modal-card {{claseCambio}}">
+        <div class="metrica-modal-header">
+            <span class="metrica-modal-icon">{{icono}}</span>
+            <span class="metrica-modal-nombre">{{nombre}}</span>
+        </div>
+        <div class="metrica-modal-valores">
+            <div class="metrica-modal-fila">
+                <span>Período 1:</span>
+                <strong>{{periodo1}}</strong>
+            </div>
+            <div class="metrica-modal-fila">
+                <span>Período 2:</span>
+                <strong>{{periodo2}}</strong>
+            </div>
+            <div class="metrica-modal-fila destacada">
+                <span>Cambio:</span>
+                <strong>{{cambio}}</strong>
+            </div>
+            <div class="metrica-modal-fila porcentaje">
+                <span>% Cambio:</span>
+                <strong>{{porcentaje}}</strong>
+            </div>
+        </div>
+    </div>
+</template>
+
+<!-- Template para métrica modal vacía -->
+<template id="tpl-metrica-modal-vacia">
+    <div class="metrica-modal-card">
+        <div class="metrica-modal-header">
+            <span class="metrica-modal-icon">{{icono}}</span>
+            <span class="metrica-modal-nombre">{{nombre}}</span>
+        </div>
+        <div class="metrica-modal-valores">
+            <div class="metrica-modal-fila">
+                <span>No disponible</span>
+            </div>
+        </div>
+    </div>
+</template>
+
+<!-- Template para análisis de tendencia -->
+<template id="tpl-analisis-tendencia">
+    <ul class="analisis-lista">
+        {{itemsHTML}}
+    </ul>
+</template>
+
+<!-- Template para item de análisis -->
+<template id="tpl-analisis-item">
+    <li>
+        <strong>{{nombre}}</strong> {{tendencia}} un 
+        <span class="{{clase}}">
+            {{porcentaje}}%
+        </span>
+        ({{valor}})
+    </li>
+</template>
+
+<!-- Template para cuando no hay datos -->
+<template id="tpl-no-datos-estados">
+    <tr>
+        <td colspan="16" class="no-data-message">
+            <div class="no-data-content">
+                <span class="no-data-icon">📊</span>
+                <h4>No hay datos disponibles por estado</h4>
+                <p>La comparativa no incluye análisis desglosado por estado.</p>
+            </div>
+        </td>
+    </tr>
+</template>
+
+<template id="tpl-fila-estado">
+        <td class="estado-nombre" title="Haz clic para ver detalles">
+            <strong>{{estado}}</strong>
+        </td>
+
+        <!-- Plazas -->
+        <td>{{plazasP1}}</td>
+        <td>{{plazasP2}}</td>
+        <td class="{{claseCambioPlazas}}">{{cambioPlazas}}</td>
+
+        <!-- CN Inicial -->
+        <td>{{cnInicialP1}}</td>
+        <td>{{cnInicialP2}}</td>
+        <td class="{{cnInicialClaseCambio}}">{{cnInicialPorcentaje}}</td>
+
+        <!-- CN Primaria -->
+        <td>{{cnPrimariaP1}}</td>
+        <td>{{cnPrimariaP2}}</td>
+        <td class="{{cnPrimariaClaseCambio}}">{{cnPrimariaPorcentaje}}</td>
+
+        <!-- CN Secundaria -->
+        <td>{{cnSecundariaP1}}</td>
+        <td>{{cnSecundariaP2}}</td>
+        <td class="{{cnSecundariaClaseCambio}}">{{cnSecundariaPorcentaje}}</td>
+
+        <!-- CN Total -->
+        <td>{{cnTotalP1}}</td>
+        <td>{{cnTotalP2}}</td>
+        <td class="{{cnTotalClaseCambio}}">{{cnTotalPorcentaje}}</td>
+</template>
+
+<template id="tpl-estado-modal">
+    <div class="modal-estado-resumen">
+        <div class="resumen-cards-mini">
+
+            <div class="resumen-card-mini">
+                <div class="resumen-icon-mini">🏢</div>
+                <div class="resumen-content-mini">
+                    <span class="resumen-label-mini">Plazas Período 1</span>
+                    <span class="resumen-valor-mini">{{plazasP1}}</span>
+                </div>
+            </div>
+
+            <div class="resumen-card-mini">
+                <div class="resumen-icon-mini">🏢</div>
+                <div class="resumen-content-mini">
+                    <span class="resumen-label-mini">Plazas Período 2</span>
+                    <span class="resumen-valor-mini">{{plazasP2}}</span>
+                </div>
+            </div>
+
+            <div class="resumen-card-mini {{claseCambioPlazas}}">
+                <div class="resumen-icon-mini">📈</div>
+                <div class="resumen-content-mini">
+                    <span class="resumen-label-mini">Cambio Neto</span>
+                    <span class="resumen-valor-mini">{{cambioPlazas}}</span>
+                    <span class="resumen-desc-mini">{{porcentajeCambioPlazas}}</span>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div class="modal-estado-metricas">
+        <h4>📚 Métricas CN - Comparativa Detallada</h4>
+        <div class="metricas-grid-modal">
+            {{metricasHTML}}
+        </div>
+    </div>
+
+    <div class="modal-estado-analisis">
+        <h4>📈 Análisis de Tendencia</h4>
+        <div class="analisis-content">
+            {{analisisHTML}}
+        </div>
+    </div>
+</template>
+
+<template id="tpl-metrica-modal">
+    <div class="metrica-modal-card {{claseCambio}}">
+        <div class="metrica-modal-header">
+            <span class="metrica-modal-icon">{{icono}}</span>
+            <span class="metrica-modal-nombre">{{nombre}}</span>
+        </div>
+        <div class="metrica-modal-valores">
+
+            <div class="metrica-modal-fila">
+                <span>Período 1:</span>
+                <strong>{{periodo1}}</strong>
+            </div>
+
+            <div class="metrica-modal-fila">
+                <span>Período 2:</span>
+                <strong>{{periodo2}}</strong>
+            </div>
+
+            <div class="metrica-modal-fila destacada">
+                <span>Cambio:</span>
+                <strong>{{cambio}}</strong>
+            </div>
+
+            <div class="metrica-modal-fila porcentaje">
+                <span>% Cambio:</span>
+                <strong>{{porcentaje}}</strong>
+            </div>
+
+        </div>
+    </div>
+</template>
+</template> 
+
+<template id="tpl-metrica-modal-vacia">
+    <div class="metrica-modal-card">
+        <div class="metrica-modal-header">
+            <span class="metrica-modal-icon">{{icono}}</span>
+            <span class="metrica-modal-nombre">{{nombre}}</span>
+        </div>
+        <div class="metrica-modal-valores">
+            <div class="metrica-modal-fila">
+                <span>No disponible</span>
+            </div>
+        </div>
+    </div>
+</template>
+
+
+<template id="tpl-analisis-tendencia">
+    <ul class="analisis-lista">
+        {{itemsHTML}}
+    </ul>
+</template>
+
+<template id="tpl-analisis-item">
+    <li>
+        <strong>{{nombre}}</strong> {{tendencia}} un 
+        <span class="{{clase}}">
+            {{porcentaje}}%
+        </span>
+        ({{valor}})
+    </li>
+</template>
+
+<template id="tpl-no-datos-estados">
+    <tr>
+        <td colspan="16" class="no-data-message">
+            <div class="no-data-content">
+                <span class="no-data-icon">📊</span>
+                <h4>No hay datos disponibles por estado</h4>
+                <p>La comparativa no incluye análisis desglosado por estado.</p>
+            </div>
+        </td>
+    </tr>
+</template>
+
+
     <script src="{{ url_for('static', filename='main.js') }}"></script>
+    <script src="{{ url_for('static', filename='comparativas.js') }}"></script>
 </body>
 </html>
