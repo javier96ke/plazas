@@ -15,6 +15,9 @@ document.addEventListener('DOMContentLoaded', () => {
     const claveInput = document.getElementById('clave-input');
     const searchByKeyButton = document.getElementById('search-by-key-button');
     const keyLoader = document.getElementById('key-loader');
+    // --- REFERENCIAS PARA NAVEGACIÓN DE ESTADÍSTICAS ---
+    const statsNavBtns = document.querySelectorAll('.stats-nav-btn');
+    const statsSubviews = document.querySelectorAll('.stats-subview');
     
     // Búsqueda por Filtros
     const selects = {
@@ -174,6 +177,27 @@ document.addEventListener('DOMContentLoaded', () => {
         views[viewId].classList.remove('hidden');
 
         if (viewId === 'stats-view') {
+            // Inicializar navegación de estadísticas
+            setTimeout(() => {
+                initStatsNavigation();
+                
+                // Mostrar estadísticas generales por defecto
+                const generalStatsView = document.getElementById('general-stats-view');
+                const comparativasStatsView = document.getElementById('comparativas-stats-view');
+                const generalStatsBtn = document.querySelector('[data-subview="general-stats"]');
+                const comparativasStatsBtn = document.querySelector('[data-subview="comparativas-stats"]');
+                
+                if (generalStatsView && comparativasStatsView) {
+                    generalStatsView.classList.remove('hidden');
+                    comparativasStatsView.classList.add('hidden');
+                }
+                
+                if (generalStatsBtn && comparativasStatsBtn) {
+                    generalStatsBtn.classList.add('active');
+                    comparativasStatsBtn.classList.remove('active');
+                }
+            }, 50);
+            
             if (!estadisticasData) {
                 cargarEstadisticas();
             } else if (!cnResumenData) {
@@ -1547,6 +1571,37 @@ document.addEventListener('DOMContentLoaded', () => {
         return { openModal };
     }
 
+    // --- NAVEGACIÓN ENTRE SUB-VISTAS DE ESTADÍSTICAS ---
+    function initStatsNavigation() {
+        statsNavBtns.forEach(btn => {
+            btn.addEventListener('click', function() {
+                const targetSubview = this.getAttribute('data-subview');
+                
+                // Actualizar botones activos
+                statsNavBtns.forEach(b => b.classList.remove('active'));
+                this.classList.add('active');
+                
+                // Mostrar sub-vista correspondiente
+                statsSubviews.forEach(view => {
+                    if (view.id === `${targetSubview}-view`) {
+                        view.classList.remove('hidden');
+                    } else {
+                        view.classList.add('hidden');
+                    }
+                });
+                
+                // Si es la vista de comparativas, inicializar el sistema
+                if (targetSubview === 'comparativas-stats') {
+                    setTimeout(() => {
+                        if (typeof sistemaComparativas !== 'undefined') {
+                            sistemaComparativas.init();
+                        }
+                    }, 100);
+                }
+            });
+        });
+    }
+
     // --- INICIALIZACIÓN FINAL ---
     const initApp = () => {
         const resetButton = document.getElementById('reset-search-button');
@@ -1564,6 +1619,9 @@ document.addEventListener('DOMContentLoaded', () => {
         
         loadExcelLastUpdate();
         setupUpdateBadgeInteractions();
+        
+        // Inicializar navegación de estadísticas
+        initStatsNavigation();
         
         handleNavigation();
     };
