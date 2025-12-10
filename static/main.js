@@ -135,16 +135,18 @@ document.addEventListener('DOMContentLoaded', () => {
         applyTheme(savedTheme === 'dark' ? 'dark' : 'light');
     };
 
-    themeLight.addEventListener('click', () => applyTheme('light'));
-    themeDark.addEventListener('click', () => applyTheme('dark'));
+    if (themeLight) themeLight.addEventListener('click', () => applyTheme('light'));
+    if (themeDark) themeDark.addEventListener('click', () => applyTheme('dark'));
     initTheme();
 
     // --- SISTEMA DE PANTALLA DE CARGA ---
     function showLoader(message = null, type = 'default') {
         const loader = document.getElementById('global-loader');
+        if (!loader) return;
+        
         const loaderMessage = loader.querySelector('.loader-message');
         
-        if (message) {
+        if (message && loaderMessage) {
             loaderMessage.textContent = message;
         }
         
@@ -159,6 +161,8 @@ document.addEventListener('DOMContentLoaded', () => {
 
     function hideLoader() {
         const loader = document.getElementById('global-loader');
+        if (!loader) return;
+        
         loader.classList.add('hidden');
         
         setTimeout(() => {
@@ -168,13 +172,13 @@ document.addEventListener('DOMContentLoaded', () => {
 
     // --- NAVEGACIÓN SPA ---
     const showView = (viewId) => {
-        const currentView = Object.keys(views).find(key => !views[key].classList.contains('hidden'));
+        const currentView = Object.keys(views).find(key => views[key] && !views[key].classList.contains('hidden'));
         if (currentView && currentView !== viewId) {
             lastView = currentView;
         }
         if (!views[viewId]) viewId = 'welcome-screen';
-        Object.values(views).forEach(v => v.classList.add('hidden'));
-        views[viewId].classList.remove('hidden');
+        Object.values(views).forEach(v => v && v.classList.add('hidden'));
+        if (views[viewId]) views[viewId].classList.remove('hidden');
 
         if (viewId === 'stats-view') {
             // Inicializar navegación de estadísticas
@@ -235,14 +239,20 @@ document.addEventListener('DOMContentLoaded', () => {
         }
     });
     
-    backToSearchButton.addEventListener('click', () => {
-        history.back();
-    });
+    if (backToSearchButton) {
+        backToSearchButton.addEventListener('click', () => {
+            history.back();
+        });
+    }
 
     // --- UTILIDADES ---
-    const setLoaderVisible = (loader, visible) => loader.classList.toggle('hidden', !visible);
+    const setLoaderVisible = (loader, visible) => {
+        if (loader) loader.classList.toggle('hidden', !visible);
+    };
     
     const showAlert = (message, type = 'info') => {
+        if (!alertContainer) return;
+        
         const alertDiv = document.createElement('div');
         alertDiv.className = type === 'error' ? 'alert' :
                            type === 'success' ? 'alert success' :
@@ -368,9 +378,13 @@ document.addEventListener('DOMContentLoaded', () => {
 
     // --- RENDERIZADO DE RESULTADOS ACTUALIZADO ---
     const renderPlazaResultados = (data) => {
+        if (!resultsContent) return;
+        
         const { excel_info, images, google_maps_url, direccion_completa } = data;
         
         const template = document.getElementById('plaza-results-template');
+        if (!template) return;
+        
         const clone = template.content.cloneNode(true);
         
         const clavePlazaElement = clone.querySelector('[data-bind="clave_plaza"]');
@@ -398,6 +412,7 @@ document.addEventListener('DOMContentLoaded', () => {
         }
         
         const generateGridContent = (container, info, columns) => {
+            if (!container) return;
             container.innerHTML = '';
             columns.forEach(key => {
                 const displayKey = key.replace(/_/g, ' ');
@@ -437,19 +452,24 @@ document.addEventListener('DOMContentLoaded', () => {
             
             if (images?.length > 0) {
                 const imageTemplate = document.getElementById('image-item-template');
-                
-                images.forEach((url, index) => {
-                    const imageClone = imageTemplate.content.cloneNode(true);
-                    const img = imageClone.querySelector('img');
-                    img.src = url;
-                    img.alt = `Imagen de la plaza ${index + 1}`;
-                    
-                    imagesContainer.appendChild(imageClone);
-                });
+                if (imageTemplate) {
+                    images.forEach((url, index) => {
+                        const imageClone = imageTemplate.content.cloneNode(true);
+                        const img = imageClone.querySelector('img');
+                        if (img) {
+                            img.src = url;
+                            img.alt = `Imagen de la plaza ${index + 1}`;
+                        }
+                        
+                        imagesContainer.appendChild(imageClone);
+                    });
+                }
             } else {
                 const noImagesTemplate = document.getElementById('no-images-template');
-                const noImagesClone = noImagesTemplate.content.cloneNode(true);
-                imagesContainer.appendChild(noImagesClone);
+                if (noImagesTemplate) {
+                    const noImagesClone = noImagesTemplate.content.cloneNode(true);
+                    imagesContainer.appendChild(noImagesClone);
+                }
             }
         }
         
@@ -465,11 +485,13 @@ document.addEventListener('DOMContentLoaded', () => {
                 container.replaceWith(container.cloneNode(true));
                 
                 const newContainer = document.querySelectorAll('.image-container')[index];
-                newContainer.addEventListener('click', () => {
-                    if (allImages.length > 0 && modalOpenFunction) {
-                        modalOpenFunction(allImages, index);
-                    }
-                });
+                if (newContainer) {
+                    newContainer.addEventListener('click', () => {
+                        if (allImages.length > 0 && modalOpenFunction) {
+                            modalOpenFunction(allImages, index);
+                        }
+                    });
+                }
             });
         }, 100);
         
@@ -477,9 +499,9 @@ document.addEventListener('DOMContentLoaded', () => {
             const images = document.querySelectorAll('.plaza-image');
             console.log(`🔍 Verificando ${images.length} imágenes...`);
             images.forEach((img, index) => {
-                if (!img.complete || img.naturalHeight === 0) {
+                if (img && (!img.complete || img.naturalHeight === 0)) {
                     console.warn(`❌ Imagen ${index} no se cargó:`, img.src);
-                } else {
+                } else if (img) {
                     console.log(`✅ Imagen ${index} cargada correctamente`);
                 }
             });
@@ -533,6 +555,8 @@ document.addEventListener('DOMContentLoaded', () => {
     };
     
     const populateSelect = async (selectElement, url, placeholder) => {
+        if (!selectElement) return;
+        
         selectElement.disabled = true;
         
         const loadingOption = document.createElement('option');
@@ -648,18 +672,20 @@ document.addEventListener('DOMContentLoaded', () => {
             progressFill.style.width = `${progressPercentage}%`;
         }
         
-        progressSteps.forEach((stepElement, index) => {
-            const stepName = stepElement.getAttribute('data-step');
-            const stepIndex = steps.indexOf(stepName);
-            
-            stepElement.classList.remove('active', 'completed');
-            
-            if (stepIndex < completedSteps) {
-                stepElement.classList.add('completed');
-            } else if (stepIndex === completedSteps && activeStepIndex >= stepIndex) {
-                stepElement.classList.add('active');
-            }
-        });
+        if (progressSteps && progressSteps.length > 0) {
+            progressSteps.forEach((stepElement, index) => {
+                const stepName = stepElement.getAttribute('data-step');
+                const stepIndex = steps.indexOf(stepName);
+                
+                stepElement.classList.remove('active', 'completed');
+                
+                if (stepIndex < completedSteps) {
+                    stepElement.classList.add('completed');
+                } else if (stepIndex === completedSteps && activeStepIndex >= stepIndex) {
+                    stepElement.classList.add('active');
+                }
+            });
+        }
     };
     
     const resetSearch = () => {
@@ -701,6 +727,8 @@ document.addEventListener('DOMContentLoaded', () => {
     };
 
     const setupProgressBarNavigation = () => {
+        if (!progressSteps || progressSteps.length === 0) return;
+        
         progressSteps.forEach(step => {
             const newStep = step.cloneNode(true);
             step.parentNode.replaceChild(newStep, step);
@@ -733,7 +761,7 @@ document.addEventListener('DOMContentLoaded', () => {
     };
 
     const handleFilterSearch = () => {
-        const clave = selects.clave.value;
+        const clave = selects.clave?.value;
         if (clave) {
             buscarYMostrarClave(clave, filterLoader);
         } else {
@@ -742,7 +770,7 @@ document.addEventListener('DOMContentLoaded', () => {
     };
 
     const handleSearchByKey = () => {
-        const clave = claveInput.value.trim();
+        const clave = claveInput?.value.trim();
         if (clave) {
             buscarYMostrarClave(clave, keyLoader);
         } else {
@@ -804,11 +832,20 @@ document.addEventListener('DOMContentLoaded', () => {
             if (e.key === 'Escape') {
                 history.back();
             }
-            if (!views['welcome-screen'].classList.contains('hidden')) {
-                if (e.key === '1') document.querySelector('a[href="#key-search-view"]').click();
-                else if (e.key === '2') document.querySelector('a[href="#filter-search-view"]').click();
-                else if (e.key === '3') document.querySelector('a[href="#stats-view"]').click();
-                else if (e.key === '4') document.querySelector('a[href="#estados-view"]').click();
+            if (views['welcome-screen'] && !views['welcome-screen'].classList.contains('hidden')) {
+                if (e.key === '1') {
+                    const link = document.querySelector('a[href="#key-search-view"]');
+                    if (link) link.click();
+                } else if (e.key === '2') {
+                    const link = document.querySelector('a[href="#filter-search-view"]');
+                    if (link) link.click();
+                } else if (e.key === '3') {
+                    const link = document.querySelector('a[href="#stats-view"]');
+                    if (link) link.click();
+                } else if (e.key === '4') {
+                    const link = document.querySelector('a[href="#estados-view"]');
+                    if (link) link.click();
+                }
             }
         });
     };
@@ -817,115 +854,138 @@ document.addEventListener('DOMContentLoaded', () => {
     if (searchFilterButton) {
         searchFilterButton.addEventListener('click', handleFilterSearch);
     }
-    searchByKeyButton.addEventListener('click', handleSearchByKey);
-    claveInput.addEventListener('keyup', (e) => e.key === 'Enter' && handleSearchByKey());
+    
+    if (searchByKeyButton) {
+        searchByKeyButton.addEventListener('click', handleSearchByKey);
+    }
+    
+    if (claveInput) {
+        claveInput.addEventListener('keyup', (e) => e.key === 'Enter' && handleSearchByKey());
+    }
 
     // Event listeners para filtros
-    selects.estado.addEventListener('change', () => {
-        resetSteps('zona');
-        const estado = selects.estado.value;
-        updateStepIndicator('estado', estado ? 'completed' : 'active');
-        if (estado) {
-            populateSelect(selects.zona, `/api/zonas?estado=${encodeURIComponent(estado)}`, 'Selecciona una Zona');
-            setTimeout(() => navigateToNextStep('estado'), 100);
-        }
-        actualizarProgreso();
-    });
+    if (selects.estado) {
+        selects.estado.addEventListener('change', () => {
+            resetSteps('zona');
+            const estado = selects.estado.value;
+            updateStepIndicator('estado', estado ? 'completed' : 'active');
+            if (estado) {
+                populateSelect(selects.zona, `/api/zonas?estado=${encodeURIComponent(estado)}`, 'Selecciona una Zona');
+                setTimeout(() => navigateToNextStep('estado'), 100);
+            }
+            actualizarProgreso();
+        });
+    }
 
-    selects.zona.addEventListener('change', () => {
-        resetSteps('municipio');
-        const zona = selects.zona.value;
-        updateStepIndicator('zona', zona ? 'completed' : 'active');
-        if (zona) {
-            populateSelect(selects.municipio, `/api/municipios?estado=${encodeURIComponent(selects.estado.value)}&zona=${encodeURIComponent(zona)}`, 'Selecciona un Municipio');
-            setTimeout(() => navigateToNextStep('zona'), 100);
-        }
-        actualizarProgreso();
-    });
+    if (selects.zona) {
+        selects.zona.addEventListener('change', () => {
+            resetSteps('municipio');
+            const zona = selects.zona.value;
+            updateStepIndicator('zona', zona ? 'completed' : 'active');
+            if (zona) {
+                populateSelect(selects.municipio, `/api/municipios?estado=${encodeURIComponent(selects.estado.value)}&zona=${encodeURIComponent(zona)}`, 'Selecciona un Municipio');
+                setTimeout(() => navigateToNextStep('zona'), 100);
+            }
+            actualizarProgreso();
+        });
+    }
 
-    selects.municipio.addEventListener('change', () => {
-        resetSteps('localidad');
-        const municipio = selects.municipio.value;
-        updateStepIndicator('municipio', municipio ? 'completed' : 'active');
-        if (municipio) {
-            populateSelect(selects.localidad, `/api/localidades?estado=${encodeURIComponent(selects.estado.value)}&zona=${encodeURIComponent(selects.zona.value)}&municipio=${encodeURIComponent(municipio)}`, 'Selecciona una Localidad');
-            setTimeout(() => navigateToNextStep('municipio'), 100);
-        }
-        actualizarProgreso();
-    });
+    if (selects.municipio) {
+        selects.municipio.addEventListener('change', () => {
+            resetSteps('localidad');
+            const municipio = selects.municipio.value;
+            updateStepIndicator('municipio', municipio ? 'completed' : 'active');
+            if (municipio) {
+                populateSelect(selects.localidad, `/api/localidades?estado=${encodeURIComponent(selects.estado.value)}&zona=${encodeURIComponent(selects.zona.value)}&municipio=${encodeURIComponent(municipio)}`, 'Selecciona una Localidad');
+                setTimeout(() => navigateToNextStep('municipio'), 100);
+            }
+            actualizarProgreso();
+        });
+    }
 
-    selects.localidad.addEventListener('change', () => {
-        resetSteps('clave');
-        const localidad = selects.localidad.value;
-        updateStepIndicator('localidad', localidad ? 'completed' : 'active');
-        if (localidad) {
-            populateSelect(selects.clave, `/api/claves_plaza?estado=${encodeURIComponent(selects.estado.value)}&zona=${encodeURIComponent(selects.zona.value)}&municipio=${encodeURIComponent(selects.municipio.value)}&localidad=${encodeURIComponent(localidad)}`, 'Selecciona la Clave');
-            setTimeout(() => navigateToNextStep('localidad'), 100);
-        }
-        actualizarProgreso();
-    });
+    if (selects.localidad) {
+        selects.localidad.addEventListener('change', () => {
+            resetSteps('clave');
+            const localidad = selects.localidad.value;
+            updateStepIndicator('localidad', localidad ? 'completed' : 'active');
+            if (localidad) {
+                populateSelect(selects.clave, `/api/claves_plaza?estado=${encodeURIComponent(selects.estado.value)}&zona=${encodeURIComponent(selects.zona.value)}&municipio=${encodeURIComponent(selects.municipio.value)}&localidad=${encodeURIComponent(localidad)}`, 'Selecciona la Clave');
+                setTimeout(() => navigateToNextStep('localidad'), 100);
+            }
+            actualizarProgreso();
+        });
+    }
 
-    selects.clave.addEventListener('change', () => {
-        const clave = selects.clave.value;
-        updateStepIndicator('clave', clave ? 'completed' : 'active');
-        actualizarProgreso();
-        
-        if (clave && document.getElementById('auto-search-toggle')?.checked) {
-            setTimeout(() => handleFilterSearch(), 500);
-        }
-    });
+    if (selects.clave) {
+        selects.clave.addEventListener('change', () => {
+            const clave = selects.clave.value;
+            updateStepIndicator('clave', clave ? 'completed' : 'active');
+            actualizarProgreso();
+            
+            if (clave && document.getElementById('auto-search-toggle')?.checked) {
+                setTimeout(() => handleFilterSearch(), 500);
+            }
+        });
+    }
 
     // --- LÓGICA DE ESTADÍSTICAS ---
 
     const renderResumenCN = () => {
-        if (!cnResumenCards || !cnResumenData?.resumen_nacional) return;
+    if (!cnResumenCards || !cnResumenData?.resumen_nacional) return;
+    
+    const { resumen_nacional, top5_estados_por_CN_Total } = cnResumenData;
+    
+    cnResumenCards.innerHTML = '';
+    
+    // Resumen Nacional
+    const resumenCard = document.createElement('div');
+    resumenCard.className = 'cn-card';
+    
+    const tituloResumen = document.createElement('h4');
+    tituloResumen.textContent = '📊 Resumen Nacional';
+    
+    const statsGrid = document.createElement('div');
+    statsGrid.className = 'cn-stats-grid';
+    
+    const categoriasMostrar = [
+        { key: 'CN_Inicial_Acum', nombre: 'CN Inicial' },
+        { key: 'CN_Prim_Acum', nombre: 'CN Primaria' },
+        { key: 'CN_Sec_Acum', nombre: 'CN Secundaria' },
+        { key: 'CN_Total', nombre: 'CN TOTAL' }
+    ];
+    
+    categoriasMostrar.forEach(item => {
+        const data = resumen_nacional[item.key];
+        if (!data) {
+            console.warn(`Datos no encontrados para: ${item.key}`);
+            return;
+        }
         
-        const { resumen_nacional, top5_estados_por_CN_Total } = cnResumenData;
+        const statItem = document.createElement('div');
+        statItem.className = `cn-stat-item ${item.key === 'CN_Total' ? 'cn-total-item' : ''}`;
         
-        cnResumenCards.innerHTML = '';
+        // CORREGIDO: Declarar label correctamente
+        const labelElement = document.createElement('span');
+        labelElement.className = 'cn-stat-label';
+        labelElement.textContent = item.nombre;
         
-        // Resumen Nacional
-        const resumenCard = document.createElement('div');
-        resumenCard.className = 'cn-card';
+        const value = document.createElement('span');
+        value.className = 'cn-stat-value';
+        value.textContent = data.suma ? data.suma.toLocaleString() : '0';
         
-        const tituloResumen = document.createElement('h4');
-        tituloResumen.textContent = '📊 Resumen Nacional';
+        const subvalue = document.createElement('span');
+        subvalue.className = 'cn-stat-subvalue';
+        subvalue.textContent = `Plazas en operación: ${data.plazasOperacion ? data.plazasOperacion.toLocaleString() : '0'}`;
         
-        const statsGrid = document.createElement('div');
-        statsGrid.className = 'cn-stats-grid';
-        
-        const categoriasMostrar = ['CN_Inicial_Acum', 'CN_Prim_Acum', 'CN_Sec_Acum', 'CN_Total'];
-        
-        categoriasMostrar.forEach(key => {
-            const data = resumen_nacional[key];
-            if (!data) return;
-            
-            const statItem = document.createElement('div');
-            statItem.className = `cn-stat-item ${key === 'CN_Total' ? 'cn-total-item' : ''}`;
-            
-            const nombre = key === 'CN_Total' ? 'CN TOTAL' : key.replace(/_/g, ' ');
-            
-            const label = document.createElement('span');
-            label.className = 'cn-stat-label';
-            label.textContent = nombre;
-            
-            const value = document.createElement('span');
-            value.className = 'cn-stat-value';
-            value.textContent = data.suma.toLocaleString();
-            
-            const subvalue = document.createElement('span');
-            subvalue.className = 'cn-stat-subvalue';
-            subvalue.textContent = `Plazas en operación: ${data.plazasOperacion.toLocaleString()}`;
-            
-            statItem.appendChild(label);
-            statItem.appendChild(value);
-            statItem.appendChild(subvalue);
-            statsGrid.appendChild(statItem);
-        });
-        
-        resumenCard.appendChild(tituloResumen);
-        resumenCard.appendChild(statsGrid);
-        cnResumenCards.appendChild(resumenCard);
+        statItem.appendChild(labelElement);
+        statItem.appendChild(value);
+        statItem.appendChild(subvalue);
+        statsGrid.appendChild(statItem);
+    });
+    
+    resumenCard.appendChild(tituloResumen);
+    resumenCard.appendChild(statsGrid);
+    cnResumenCards.appendChild(resumenCard);
         
         // Top 5 estados
         if (top5_estados_por_CN_Total && top5_estados_por_CN_Total.length > 0) {
@@ -1039,6 +1099,8 @@ document.addEventListener('DOMContentLoaded', () => {
 
     const setupSorting = () => {
         const sortButtons = document.querySelectorAll('.sort-btn');
+        if (sortButtons.length === 0) return;
+        
         let currentData = [...cnPorEstadoData.estados];
         
         sortButtons.forEach(button => {
@@ -1111,6 +1173,8 @@ document.addEventListener('DOMContentLoaded', () => {
         
         const updateTableRows = (data) => {
             const tbody = cnEstadosTable.querySelector('tbody');
+            if (!tbody) return;
+            
             tbody.innerHTML = '';
             
             data.forEach(estado => {
@@ -1148,21 +1212,21 @@ document.addEventListener('DOMContentLoaded', () => {
      
     const renderEstadisticasCN = () => {
         if (!cnResumenData || !cnPorEstadoData || !cnTopEstadosData) return;
-        renderResumenCN();
-        renderTablaEstadosCN();
+        if (cnResumenCards) renderResumenCN();
+        if (cnEstadosTable) renderTablaEstadosCN();
     };
 
     const renderEstadosDestacadosCN = (estadosDestacados) => {
         if (!estadosDestacados) return;
-        if (estadosDestacados.CN_Inicial_Acum) {
+        if (estadosDestacados.CN_Inicial_Acum && estadoMasCNInicialNombre && estadoMasCNInicialCantidad) {
             estadoMasCNInicialNombre.textContent = estadosDestacados.CN_Inicial_Acum.estado;
             estadoMasCNInicialCantidad.textContent = estadosDestacados.CN_Inicial_Acum.valor.toLocaleString();
         }
-        if (estadosDestacados.CN_Prim_Acum) {
+        if (estadosDestacados.CN_Prim_Acum && estadoMasCNPrimariaNombre && estadoMasCNPrimariaCantidad) {
             estadoMasCNPrimariaNombre.textContent = estadosDestacados.CN_Prim_Acum.estado;
             estadoMasCNPrimariaCantidad.textContent = estadosDestacados.CN_Prim_Acum.valor.toLocaleString();
         }
-        if (estadosDestacados.CN_Sec_Acum) {
+        if (estadosDestacados.CN_Sec_Acum && estadoMasCNSecundariaNombre && estadoMasCNSecundariaCantidad) {
             estadoMasCNSecundariaNombre.textContent = estadosDestacados.CN_Sec_Acum.estado;
             estadoMasCNSecundariaCantidad.textContent = estadosDestacados.CN_Sec_Acum.valor.toLocaleString();
         }
@@ -1196,13 +1260,20 @@ document.addEventListener('DOMContentLoaded', () => {
                 listElement.appendChild(itemDiv);
             });
         };
-        renderList(cnTop5InicialList, top5Todos.inicial);
-        renderList(cnTop5PrimariaList, top5Todos.primaria);
-        renderList(cnTop5SecundariaList, top5Todos.secundaria);
+        if (cnTop5InicialList) renderList(cnTop5InicialList, top5Todos.inicial);
+        if (cnTop5PrimariaList) renderList(cnTop5PrimariaList, top5Todos.primaria);
+        if (cnTop5SecundariaList) renderList(cnTop5SecundariaList, top5Todos.secundaria);
     };
 
     const cargarEstadisticasCompletasCN = async () => {
         try {
+            // Verificar si hay elementos CN en el HTML antes de cargar
+            const hasCNElements = cnResumenCards || cnEstadosTable || 
+                                 cnTop5InicialList || cnTop5PrimariaList || cnTop5SecundariaList ||
+                                 estadoMasCNInicialNombre || estadoMasCNPrimariaNombre || estadoMasCNSecundariaNombre;
+            
+            if (!hasCNElements) return;
+            
             showLoader('Cargando estadísticas ...', 'compact');
             
             const [resumen, porEstado, topEstados, estadosDestacados, top5Todos] = await Promise.all([
@@ -1240,6 +1311,7 @@ document.addEventListener('DOMContentLoaded', () => {
             const stats = await fetchData('/api/estadisticas');
             estadisticasData = stats;
 
+            // Actualizar elementos solo si existen
             if (totalPlazas) totalPlazas.textContent = stats.totalPlazas?.toLocaleString() || '0';
             if (plazasOperacion) plazasOperacion.textContent = stats.plazasOperacion?.toLocaleString() || '0';
             if (totalEstados) totalEstados.textContent = stats.totalEstados?.toLocaleString() || '0';
@@ -1485,6 +1557,8 @@ document.addEventListener('DOMContentLoaded', () => {
         }
 
         const modal = document.getElementById('image-modal');
+        if (!modal) return { openModal: () => {} };
+        
         const modalImage = modal.querySelector('.modal-image');
         const modalClose = modal.querySelector('.modal-close');
         const modalPrev = modal.querySelector('.modal-prev');
@@ -1501,7 +1575,7 @@ document.addEventListener('DOMContentLoaded', () => {
             currentImages = images;
             currentIndex = startIndex;
             
-            modalTotal.textContent = images.length;
+            if (modalTotal) modalTotal.textContent = images.length;
             updateModalImage();
             modal.classList.add('active');
             document.body.style.overflow = 'hidden';
@@ -1518,14 +1592,14 @@ document.addEventListener('DOMContentLoaded', () => {
             if (currentImages.length === 0) return;
             
             const imageUrl = currentImages[currentIndex];
-            modalImage.src = imageUrl;
-            modalCurrent.textContent = currentIndex + 1;
+            if (modalImage) modalImage.src = imageUrl;
+            if (modalCurrent) modalCurrent.textContent = currentIndex + 1;
             
             const filename = imageUrl.split('/').pop() || 'imagen.jpg';
-            modalFilename.textContent = decodeURIComponent(filename);
+            if (modalFilename) modalFilename.textContent = decodeURIComponent(filename);
             
-            modalPrev.style.display = currentIndex > 0 ? 'flex' : 'none';
-            modalNext.style.display = currentIndex < currentImages.length - 1 ? 'flex' : 'none';
+            if (modalPrev) modalPrev.style.display = currentIndex > 0 ? 'flex' : 'none';
+            if (modalNext) modalNext.style.display = currentIndex < currentImages.length - 1 ? 'flex' : 'none';
         }
 
         function nextImage() {
@@ -1542,9 +1616,9 @@ document.addEventListener('DOMContentLoaded', () => {
             }
         }
 
-        modalClose.addEventListener('click', closeModal);
-        modalPrev.addEventListener('click', prevImage);
-        modalNext.addEventListener('click', nextImage);
+        if (modalClose) modalClose.addEventListener('click', closeModal);
+        if (modalPrev) modalPrev.addEventListener('click', prevImage);
+        if (modalNext) modalNext.addEventListener('click', nextImage);
 
         modal.addEventListener('click', (e) => {
             if (e.target === modal) {
@@ -1573,6 +1647,8 @@ document.addEventListener('DOMContentLoaded', () => {
 
     // --- NAVEGACIÓN ENTRE SUB-VISTAS DE ESTADÍSTICAS ---
     function initStatsNavigation() {
+        if (statsNavBtns.length === 0) return;
+        
         statsNavBtns.forEach(btn => {
             btn.addEventListener('click', function() {
                 const targetSubview = this.getAttribute('data-subview');
@@ -1608,7 +1684,11 @@ document.addEventListener('DOMContentLoaded', () => {
         if (resetButton) {
             resetButton.addEventListener('click', resetSearch);
         }
-        populateSelect(selects.estado, '/api/estados', 'Selecciona un Estado');
+        
+        if (selects.estado) {
+            populateSelect(selects.estado, '/api/estados', 'Selecciona un Estado');
+        }
+        
         setupKeyboardNavigation();
         setupProgressBarNavigation();
         actualizarProgreso();
@@ -1638,6 +1718,7 @@ function loadExcelLastUpdate() {
         })
         .then(data => {
             const updateElement = document.getElementById('update-date');
+            if (!updateElement) return;
             
             if (data.last_modified && data.status === 'success') {
                 const date = new Date(data.last_modified);
