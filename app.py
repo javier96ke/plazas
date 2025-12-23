@@ -793,51 +793,53 @@ def cn_top5_todos():
 # ==============================================================================
 @app.route('/api/excel/last-update')
 def get_last_update():
-    """Devuelve la fecha de última modificación del Excel, ajustada un mes atrás."""
+    """Devuelve la fecha de última modificación del Excel, ajustada un mes atrás (salvo Diciembre)."""
     try:
-        # Verificar que el archivo existe
         if os.path.exists(Config.EXCEL_PATH):
             timestamp = os.path.getmtime(Config.EXCEL_PATH)
             fecha_real = datetime.fromtimestamp(timestamp)
 
-            # SOLUCIÓN ALTERNATIVA: Restar 1 mes usando datetime
             # Obtener año y mes de la fecha real
             año = fecha_real.year
             mes = fecha_real.month
+
             
-            # Restar un mes
-            if mes == 1:  # Si es enero, restamos un año
+            if mes == 12:
+                # Si es diciembre, NO tocamos nada. El código salta todo el bloque 'elif/else'
+                pass 
+            elif mes == 1:  
+                # Si es enero, restamos un año y pasamos a diciembre
                 año -= 1
                 mes = 12
             else:
+                # Cualquier otro mes (2-11), restamos 1
                 mes -= 1
-            
+            # ------------------------
+
             # Crear la fecha ajustada (manteniendo el mismo día si es posible)
             try:
                 fecha_ajustada = datetime(año, mes, fecha_real.day)
             except ValueError:
-                # Si el día no existe en ese mes (ej: 31 de febrero), usar el último día del mes
+                # Lógica para manejar días que no existen (ej: 31 en un mes de 30 días)
                 if mes == 2:  # Febrero
-                    # Verificar si es año bisiesto
                     if (año % 4 == 0 and año % 100 != 0) or (año % 400 == 0):
                         ultimo_dia = 29
                     else:
                         ultimo_dia = 28
-                elif mes in [4, 6, 9, 11]:  # Meses con 30 días
+                elif mes in [4, 6, 9, 11]: 
                     ultimo_dia = 30
-                else:  # Meses con 31 días
+                else: 
                     ultimo_dia = 31
                 fecha_ajustada = datetime(año, mes, ultimo_dia)
 
             return jsonify({
                 "status": "success",
-                "mensaje": "Última actualización (ajustada un mes atrás)",
+                "mensaje": "Última actualización procesada",
                 "last_modified_real": fecha_real.isoformat(),
                 "last_modified": fecha_ajustada.isoformat(),
-                "formatted": fecha_ajustada.strftime('%d/%m/%Y')  # dd/mm/yyyy
+                "formatted": fecha_ajustada.strftime('%d/%m/%Y')
             }), 200
 
-        # Si el archivo no existe
         return jsonify({
             "status": "archivo_no_encontrado",
             "mensaje": "No se encontró el archivo Excel.",
@@ -851,6 +853,7 @@ def get_last_update():
             "mensaje": f"Ocurrió un error al procesar la fecha: {str(e)}",
             "last_modified": None
         }), 500
+
     
 # ==============================================================================
 # 7. ENDPOINTS PARA GOOGLE DRIVE
