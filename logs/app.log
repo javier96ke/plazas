@@ -1,0 +1,6 @@
+2025-10-14 10:33:25 INFO: Cargando datos del Excel para la búsqueda detallada: datos_plazas.xlsx [in C:\Users\ringo\Documents\plazas\app.py:52]
+2025-10-14 10:33:46 ERROR: Error crítico al leer el Excel: 'Series' object has no attribute 'upper' [in C:\Users\ringo\Documents\plazas\app.py:68]
+2025-10-14 10:33:46 CRITICAL: La aplicación no puede iniciar porque la carga del Excel falló. [in C:\Users\ringo\Documents\plazas\app.py:213]
+2025-10-14 10:33:53 INFO: Cargando datos del Excel para la búsqueda detallada: datos_plazas.xlsx [in C:\Users\ringo\Documents\plazas\app.py:52]
+2025-10-14 10:34:01 ERROR: Error crítico al leer el Excel: 'Series' object has no attribute 'upper' [in C:\Users\ringo\Documents\plazas\app.py:68]
+2025-10-14 10:34:01 CRITICAL: La aplicación no puede iniciar porque la carga del Excel falló. [in C:\Users\ringo\Documents\plazas\app.py:213]
