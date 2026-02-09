@@ -35,7 +35,26 @@ document.addEventListener("DOMContentLoaded", function() {
     const ENDPOINT_COORDENADAS_SEGURAS = '/api/mapa/coordenadas-completas';
     const ENDPOINT_UBICAR_CERCANA = '/api/mapa/ubicar-plaza-cercana';
     const ENDPOINT_LINEA_RUTA = '/api/mapa/generar-linea-ruta';
-    // const ENDPOINT_OPCIONES_NAVEGACION = '/api/mapa/opciones-navegacion'; // Ya no se usa directamente por JS puro
+
+    // =========================================================
+    // SISTEMA DE CARGA (LOADER) PARA RUTAS
+    // =========================================================
+    function mostrarLoaderRuta(texto) {
+        const loader = document.createElement('div');
+        loader.id = 'route-loader';
+        loader.className = 'route-loader-overlay';
+        loader.innerHTML = `
+            <div class="route-spinner"></div>
+            <h3>${texto}</h3>
+            <small>Esto puede tomar unos segundos...</small>
+        `;
+        document.body.appendChild(loader);
+    }
+
+    function ocultarLoaderRuta() {
+        const loader = document.getElementById('route-loader');
+        if (loader) loader.remove();
+    }
 
     // =========================================================
     // FUNCIONES DE UTILIDAD PARA HTML/JS
@@ -275,11 +294,10 @@ document.addEventListener("DOMContentLoaded", function() {
     }
 
     // =========================================================
-    // INICIALIZACIÓN DEL MAPA
+    // 1. INICIALIZACIÓN DEL MAPA (OPTIMIZADA)
     // =========================================================
     function initMap() {
         if (typeof L === 'undefined') {
-            console.error("❌ Leaflet no cargó.");
             setTimeout(initMap, 1000);
             return;
         }
@@ -287,58 +305,70 @@ document.addEventListener("DOMContentLoaded", function() {
         const mapContainer = document.getElementById('map');
         if (!mapContainer || mapInitialized) return;
 
-        console.log("🗺️ Inicializando mapa optimizado para móviles...");
+        console.log("🗺️ Inicializando mapa...");
 
         const calle = L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
-            attribution: '© OpenStreetMap',
-            maxZoom: 18
+            attribution: '© OpenStreetMap', maxZoom: 18
         });
 
         const satelite = L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}', {
-            attribution: '© Esri',
-            maxZoom: 18
+            attribution: '© Esri', maxZoom: 18
         });
 
         mapInstance = L.map('map', {
             center: [23.6345, -102.5528],
             zoom: 5,
             layers: [calle],
-            dragging: true,
-            tap: true,
-            touchZoom: true,
-            scrollWheelZoom: false,
-            doubleClickZoom: false,
-            boxZoom: false,
-            fadeAnimation: true,
-            zoomAnimation: true,
-            markerZoomAnimation: true
+            zoomControl: false // Lo agregamos manual si queremos, o dejamos el default
         });
+        
+        // Agregar controles de zoom manualmente abajo a la derecha para móviles
+        L.control.zoom({ position: 'bottomright' }).addTo(mapInstance);
 
         configurarGestosParaMoviles(mapInstance);
-
-        const baseMaps = {
-            "Relieve": calle,
-            "Satélite": satelite
-        };
-        L.control.layers(baseMaps).addTo(mapInstance);
+        L.control.layers({ "Mapa": calle, "Satélite": satelite }).addTo(mapInstance);
 
         markersGroup = L.markerClusterGroup({ 
             disableClusteringAtZoom: 16,
             spiderfyOnMaxZoom: true,
             maxClusterRadius: 60,
-            chunkedLoading: true,
-            chunkInterval: 200,
-            chunkDelay: 50,
-            removeOutsideVisibleBounds: true
+            chunkedLoading: true 
         });
 
+        mapInstance.addLayer(markersGroup);
         mapInitialized = true;
         
         setupBackButtonInterceptor();
         agregarResetMapButton();
         agregarControlLiveTracking(mapInstance);
+
+        // --- CORRECCIÓN: CARGAR CONTROLES INMEDIATAMENTE ---
+        agregarControlesInmediatos(mapInstance);
         
+        // Cargar datos en segundo plano
         gestionarDatosMapa();
+    }
+
+    // Nueva función para forzar la aparición de botones
+    function agregarControlesInmediatos(map) {
+        // 1. Botón de Plazas Cercanas (GPS)
+        const GpsControl = L.Control.extend({
+            options: { position: 'topleft' },
+            onAdd: function() {
+                const container = L.DomUtil.create('div', 'leaflet-bar leaflet-control leaflet-control-gps');
+                container.innerHTML = '<span class="gps-icon">🧭</span> <span class="gps-text">Cercanas</span>';
+                container.style.cursor = 'pointer';
+                container.onclick = function(e) {
+                    L.DomEvent.stopPropagation(e);
+                    mostrarModalConfirmacionGPS();
+                };
+                return container;
+            }
+        });
+        map.addControl(new GpsControl());
+
+        // 2. Buscador
+        agregarBuscador(map);
     }
 
     // =========================================================
@@ -1425,41 +1455,18 @@ document.addEventListener("DOMContentLoaded", function() {
     // =========================================================
     // CONTROLES DESPUÉS DE DATOS
     // =========================================================
-// =========================================================
-// CONTROLES DESPUÉS DE DATOS (MODIFICADA PARA EVITAR DUPLICACIÓN)
-// =========================================================
-function agregarControlesDespuesDeDatos() {
-    if (!mapInstance || datosGlobales.length === 0) return;
-    
-    // Variable para llevar registro de controles agregados
-    let controlesAgregados = false;
-    
-    // Verificar si el buscador ya existe - si no, agregarlo
-    if (!document.querySelector('.leaflet-bar.search-container')) {
-        agregarBuscador(mapInstance);
-        controlesAgregados = true;
-     
+    function agregarControlesDespuesDeDatos() {
+        if (!mapInstance || datosGlobales.length === 0) return;
+        
+        const searchInput = document.getElementById('map-search-input');
+        if (searchInput) {
+            searchInput.disabled = false;
+            searchInput.placeholder = `Buscar entre ${datosGlobales.length} plazas...`;
+        }
+        
+        mostrarNotificacion(`✅ ${datosGlobales.length} plazas cargadas`, 'success');
     }
-    
-    // Verificar si el control GPS ya existe - si no, agregarlo
-    if (!document.querySelector('.leaflet-control-gps')) {
-        agregarControlGPS(mapInstance);
-        controlesAgregados = true;
-       
-    }
-    
-  
-    const searchInput = document.getElementById('map-search-input');
-    if (searchInput) {
-        searchInput.disabled = false;
-        searchInput.placeholder = `Buscar entre ${datosGlobales.length} plazas...`;
-    }
-    
-    // Si ya estaban todos los controles, no duplicar
-    if (!controlesAgregados) {
-      
-    }
-}
+
     // =========================================================
     // NAVEGACIÓN ENTRE VISTAS
     // =========================================================
@@ -1661,10 +1668,15 @@ function agregarControlesDespuesDeDatos() {
         }, 3000);
     }
 
+    // =========================================================
+    // LÓGICA DE RUTA MEJORADA
+    // =========================================================
     window.solicitarUbicacionParaRuta = function(destLat, destLon, destinoNombre, userLat = null, userLon = null) {
+        // Si ya tenemos ubicación, vamos directo
         if (userLat && userLon) {
             window.mostrarOpcionesNavegacion(destLat, destLon, destinoNombre, true, userLat, userLon);
         } else {
+            // Si no, pedimos permiso con el modal
             mostrarModalConfirmacionRuta(destLat, destLon, destinoNombre);
         }
     };
@@ -1677,13 +1689,10 @@ function agregarControlesDespuesDeDatos() {
         modal.className = 'gps-confirm-modal';
         modal.innerHTML = `
             <h3>🚗 Crear Ruta</h3>
-            <p>Para crear una ruta desde tu ubicación actual a esta plaza, necesitamos acceder a tu GPS.</p>
-            <p class="gps-confirm-note">
-                Se abrirá la aplicación de navegación que elijas con la ruta hacia "${destinoNombre || 'la plaza'}"
-            </p>
+            <p>Necesitamos tu ubicación actual para trazar la ruta hacia <strong>${destinoNombre}</strong>.</p>
             <div class="gps-confirm-buttons">
                 <button class="gps-confirm-btn gps-confirm-yes" id="ruta-confirm-yes">
-                    Crear Ruta
+                    📍 Obtener Ubicación y Crear Ruta
                 </button>
                 <button class="gps-confirm-btn gps-confirm-no" id="ruta-confirm-no">
                     Cancelar
@@ -1692,28 +1701,33 @@ function agregarControlesDespuesDeDatos() {
         `;
         
         overlay.appendChild(modal);
-        document.getElementById('map').appendChild(overlay);
+        document.body.appendChild(overlay); // Usar body es más seguro que map
         
+        // EVENTO: SI (Crear Ruta)
         document.getElementById('ruta-confirm-yes').addEventListener('click', function() {
-            document.getElementById('map').removeChild(overlay);
+            // 1. Cerrar modal
+            document.body.removeChild(overlay);
             
+            // 2. Mostrar pantalla de carga
+            mostrarLoaderRuta("Obteniendo tu ubicación GPS...");
+            
+            // 3. Obtener ubicación
             obtenerUbicacionUsuario(false)
                 .then(location => {
+                    // Éxito
+                    ocultarLoaderRuta();
                     window.mostrarOpcionesNavegacion(destLat, destLon, destinoNombre, true, location.lat, location.lon);
                 })
                 .catch(error => {
-                    alert(`Error: ${error}`);
+                    // Error
+                    ocultarLoaderRuta();
+                    alert(`⚠️ No pudimos obtener tu ubicación: ${error}`);
                 });
         });
         
+        // EVENTO: NO (Cancelar)
         document.getElementById('ruta-confirm-no').addEventListener('click', function() {
-            document.getElementById('map').removeChild(overlay);
-        });
-        
-        overlay.addEventListener('click', function(e) {
-            if (e.target === overlay) {
-                document.getElementById('map').removeChild(overlay);
-            }
+            document.body.removeChild(overlay);
         });
     }
 
