@@ -321,8 +321,12 @@ document.addEventListener('DOMContentLoaded', () => {
 
         if (tableFoot) {
             let footerHTML = `
-                <tr style="background:#e2e8f0; font-weight:bold;">
-                    <td colspan="3" style="text-align:right; padding:12px; color:#475569;">TOTAL:</td>
+               <tr style="background:#e2e8f0; font-weight:bold;">
+                    <td style="text-align:right; padding:12px; color:#475569; border-right: 1px solid #cbd5e1;">TOTAL:</td>
+                    
+                    <td style="border-right: 1px solid #cbd5e1;"></td>
+                    
+                    <td style="border-right: 1px solid #cbd5e1;"></td>
             `;
             
             Object.keys(metricsConfig).forEach(key => {

@@ -3,14 +3,20 @@ import logging
 from logging.handlers import RotatingFileHandler
 import pandas as pd
 import numpy as np
-from flask import Flask, render_template, request, jsonify, send_from_directory, url_for, redirect
+from flask import Flask, render_template, request, jsonify, send_from_directory, url_for, redirect, Response
 import json
 from unidecode import unidecode
 from datetime import datetime
 import traceback
+import math
+import pickle
+from functools import lru_cache
+import orjson
+import threading
+import logging
 
 # ==============================================================================
-#  Manejar importaciones condicionales
+# CORRECCIÓN: Manejar importaciones condicionales
 # ==============================================================================
 try:
     from drive_excel_reader import drive_excel_reader_readonly
@@ -112,6 +118,8 @@ except ImportError as e:
 # ==============================================================================
 # 1. CONFIGURACIÓN Y LOGGING
 # ==============================================================================
+IS_PRODUCTION = os.environ.get('RENDER') is not None
+
 logging.basicConfig(
     level=logging.INFO,
     format='%(asctime)s %(levelname)s: %(message)s',
@@ -122,6 +130,216 @@ handler = RotatingFileHandler('app.log', maxBytes=1024000, backupCount=5, encodi
 logging.getLogger().addHandler(handler)
 
 app = Flask(__name__)
+
+# ==============================================================================
+# HELPER PARA ORJSON (optimización clave)
+# ==============================================================================
+def json_response(data, status=200):
+    """
+     REEMPLAZO ULTRARRÁPIDO DE jsonify para endpoints pesados.
+    Usa orjson para serialización 10x más rápida.
+    """
+    return Response(
+        orjson.dumps(
+            data,
+            option=orjson.OPT_NAIVE_UTC | orjson.OPT_SERIALIZE_NUMPY
+        ),
+        status=status,
+        mimetype="application/json"
+    )
+
+# ==============================================================================
+# GLOBAL DATAFRAME CACHE - ÚNICA INSTANCIA EN MEMORIA
+# ==============================================================================
+class DataframeCache:
+    """Clase para gestionar el DataFrame en memoria con cache"""
+    
+    def __init__(self):
+        self._df_plazas = None
+        self._df_ultimo_mes = None
+        self._cache_timestamp = None
+        self._mapeo_columnas = None
+        self._estados_cache = None
+        self._zonas_cache = {}
+        self._municipios_cache = {}
+        self._localidades_cache = {}
+        
+    def cargar_dataframe(self, force_reload=False):
+        """Carga el DataFrame desde parquet o excel (solo una vez)"""
+        if self._df_plazas is not None and not force_reload:
+            logging.info("✅ Usando DataFrame cargado en memoria")
+            return self._df_plazas
+            
+        try:
+            # Intentar cargar desde parquet primero
+            parquet_path = 'datos_plazas.parquet'
+            excel_path = 'datos_plazas.xlsx'
+            
+            if os.path.exists(parquet_path):
+                logging.info(f"📂 Cargando desde parquet: {parquet_path}")
+                self._df_plazas = pd.read_parquet(parquet_path)
+                logging.info(f"✅ Parquet cargado: {len(self._df_plazas)} registros")
+                
+            elif os.path.exists(excel_path):
+                logging.warning(f"⚠️ Parquet no encontrado, cargando desde excel: {excel_path}")
+                self._df_plazas = pd.read_excel(excel_path)
+                logging.info(f"✅ Excel cargado (modo emergencia): {len(self._df_plazas)} registros")
+                
+                # Guardar como parquet para futuras cargas rápidas
+                try:
+                    self._df_plazas.to_parquet(parquet_path)
+                    logging.info(f"💾 Excel convertido a parquet: {parquet_path}")
+                except Exception as e:
+                    logging.error(f"❌ Error guardando parquet: {e}")
+            else:
+                logging.critical("❌ No se encontró ni parquet ni excel")
+                self._df_plazas = pd.DataFrame()
+                return self._df_plazas
+            
+            # Procesar el DataFrame (solo una vez)
+            self._df_plazas = self._preparar_dataframe(self._df_plazas)
+            self._cache_timestamp = datetime.now()
+            
+            # Pre-cachear mapeo de columnas
+            self._mapeo_columnas = inicializar_mapeo_columnas(self._df_plazas)
+            
+            # Limpiar caches secundarios
+            self._clear_secondary_caches()
+            
+            logging.info(f"🎉 DataFrame cargado en memoria: {len(self._df_plazas)} registros")
+            return self._df_plazas
+            
+        except Exception as e:
+            logging.error(f"❌ Error crítico cargando DataFrame: {e}")
+            self._df_plazas = pd.DataFrame()
+            return self._df_plazas
+    
+    #  MODIFICACIÓN 1: Método _preparar_dataframe optimizado con CATEGORY
+    def _preparar_dataframe(self, df):
+        """
+        Prepara el DataFrame creando columnas normalizadas basadas en Alias.
+        INCLUYE OPTIMIZACIÓN 'CATEGORY' PARA MENOR USO DE RAM Y MAYOR VELOCIDAD.
+        """
+        if df.empty:
+            return df
+            
+        # Crear copia para evitar modificaciones al original
+        df = df.copy()
+        
+        # 1. Normalizar nombres de columnas (eliminar espacios y saltos de línea)
+        df.columns = [str(col).strip() for col in df.columns]
+        
+        # 2. Inicializar el mapeo para saber qué columnas reales tenemos
+        # Esto conecta tus Alias (ESTADO) con la columna real (Entidad, Edo, etc.)
+        mapeo = inicializar_mapeo_columnas(df)
+        
+        # 3. Crear columnas normalizadas (Indispensable para búsqueda rápida y cascada)
+        mapa_normalizacion = {
+            'ESTADO': 'normalized_estado',
+            'COORD_ZONA': 'normalized_zona',
+            'MUNICIPIO': 'normalized_municipio',
+            'LOCALIDAD': 'normalized_localidad',
+            'CLAVE_PLAZA': 'normalized_clave'
+        }
+
+        for clave_alias, nombre_col_optimizada in mapa_normalizacion.items():
+            # Buscamos el nombre real de la columna en el DataFrame usando el mapeo
+            nombre_real = mapeo.get(clave_alias)
+            
+            if nombre_real and nombre_real in df.columns:
+                try:
+                    # A) Normalizar texto (Mayúsculas, sin acentos)
+                    df[nombre_col_optimizada] = df[nombre_real].fillna('').astype(str).apply(normalizar_texto)
+                    
+                    # B)  GRAN OPTIMIZACIÓN: Convertir a 'category'
+                    # Esto reduce el uso de RAM y hace los filtros 10x más rápidos
+                    df[nombre_col_optimizada] = df[nombre_col_optimizada].astype('category')
+                    
+                except Exception as e:
+                    logging.error(f"❌ Error optimizando {nombre_real}: {e}")
+            else:
+                # Si no existe la columna, llenamos con vacíos para evitar crashes, pero avisamos.
+                logging.warning(f"⚠️ No se pudo crear optimización para {clave_alias}: Columna no encontrada.")
+                df[nombre_col_optimizada] = ""
+                # Convertimos a categoría incluso si está vacía para mantener consistencia de tipos
+                df[nombre_col_optimizada] = df[nombre_col_optimizada].astype('category')
+
+        # 4. Asegurar tipos numéricos para coordenadas
+        for col_name in ['Latitud', 'Longitud']:
+            real_col = mapeo.get(col_name.upper()) or col_name
+            if real_col in df.columns:
+                df[real_col] = pd.to_numeric(df[real_col], errors='coerce')
+        
+        return df
+    
+    def get_dataframe(self):
+        """Obtiene el DataFrame (lo carga si no está en memoria)"""
+        return self.cargar_dataframe()
+    
+    def get_ultimo_mes(self):
+        """Obtiene DataFrame del último mes (con cache)"""
+        if self._df_ultimo_mes is not None:
+            return self._df_ultimo_mes
+            
+        df = self.get_dataframe()
+        self._df_ultimo_mes = obtener_df_ultimo_mes(df)
+        return self._df_ultimo_mes
+    
+    def get_mapeo_columnas(self):
+        """Obtiene el mapeo de columnas"""
+        if self._mapeo_columnas is None:
+            df = self.get_dataframe()
+            self._mapeo_columnas = inicializar_mapeo_columnas(df)
+        return self._mapeo_columnas
+    
+    def get_estados_cache(self):
+        """Obtiene estados con cache"""
+        if self._estados_cache is None:
+            df = self.get_ultimo_mes()
+            if Config.COLUMNA_ESTADO in df.columns:
+                estado_counts = df.groupby(Config.COLUMNA_ESTADO)[Config.COLUMNA_CLAVE].nunique()
+                self._estados_cache = []
+                for estado, count in estado_counts.items():
+                    self._estados_cache.append({
+                        'nombre': str(estado),
+                        'cantidad': int(count)
+                    })
+                self._estados_cache.sort(key=lambda x: x['cantidad'], reverse=True)
+            else:
+                self._estados_cache = []
+        return self._estados_cache
+    
+    def get_zonas_cache(self, estado):
+        """Obtiene zonas para un estado con cache"""
+        key = normalizar_texto(estado)
+        if key not in self._zonas_cache:
+            df = self.get_ultimo_mes()
+            col_estado_norm = f"normalized_{Config.COLUMNA_ESTADO.lower()}"
+            if col_estado_norm in df.columns:
+                df_filtrado = df[df[col_estado_norm] == key]
+                zonas = obtener_opciones_unicas(df_filtrado, Config.COLUMNA_COORD_ZONA)
+                self._zonas_cache[key] = zonas
+            else:
+                self._zonas_cache[key] = []
+        return self._zonas_cache[key]
+    
+    def _clear_secondary_caches(self):
+        """Limpia caches secundarios"""
+        self._df_ultimo_mes = None
+        self._estados_cache = None
+        self._zonas_cache.clear()
+        self._municipios_cache.clear()
+        self._localidades_cache.clear()
+    
+    def refresh_cache(self):
+        """Fuerza recarga del DataFrame"""
+        logging.info("🔄 Refrescando cache del DataFrame")
+        self._df_plazas = None
+        self._clear_secondary_caches()
+        return self.cargar_dataframe(force_reload=True)
+
+# Instancia global del cache
+dataframe_cache = DataframeCache()
 
 # ==============================================================================
 # FUNCION PARA CONVERTIR TIPOS DE PANDAS A TIPOS STANDARD (EVITA ERROR INT64)
@@ -149,9 +367,9 @@ def convertir_a_serializable(obj):
 class Config:
     """Clase para almacenar todas las variables de configuración con sistema de alias."""
     EXCEL_PATH = 'datos_plazas.xlsx'
+    PARQUET_PATH = 'datos_plazas.parquet'
     IMAGES_BASE_PATH = 'fotos_de_plazas'
-    DRIVE_TREE_FILE = 'drive_tree.json'
-    EXCEL_TREE_FILE = 'excel_tree_real.json'
+    ARCHIVO_COORDENADAS = 'coordenadasplazas.json'
 
     # Constantes necesarias para cargar_y_preparar_excel
     COLUMNA_CLAVE = 'Clave_Plaza'
@@ -207,9 +425,21 @@ class Config:
     COLUMNA_TEC_DOC = 'Tec_Doc'
     COLUMNA_NOM_PVS_1 = 'Nom_PVS_1'
     COLUMNA_NOM_PVS_2 = 'Nom_PVS_2'
+    COLUMNA_TIPO_LOCAL = 'Tipo_local'
+    COLUMNA_INST_ALIADA = 'Inst_aliada'
+    COLUMNA_ARQ_DISCAP = 'Arq_Discap.'
+    COLUMNA_CONECT_INSTALADA = 'Conect_Instalada'
+    COLUMNA_TIPO_CONECT = 'Tipo_Conect'
+    COLUMNA_TOTAL_EQUIPOS_COMPUTO = 'Total de equipos de cómputo en la plaza'
+    COLUMNA_EQUIPOS_COMPUTO_OPERAN = 'Equipos de cómputo que operan'
     COLUMNA_TIPOS_EQUIPOS_COMPUTO = 'Tipos de equipos de cómputo'
     COLUMNA_IMPRESORAS_FUNCIONAN = 'Impresoras que funcionan'
     COLUMNA_IMPRESORAS_SUMINISTROS = 'Impresoras con suministros (toner, hojas)'
+    COLUMNA_TOTAL_SERVIDORES = 'Total de servidores en la plaza'
+    COLUMNA_SERVIDORES_FUNCIONAN = 'Número de servidores que funcionan correctamente'
+    COLUMNA_MESAS_FUNCIONAN = 'Cuantas mesas funcionan'
+    COLUMNA_SILLAS_FUNCIONAN = 'Cuantas sillas funcionan'
+    COLUMNA_ANAQUELES_FUNCIONAN = 'Cuantos Anaqueles funcionan'
     
     # ==================== SISTEMA DE ALIAS ====================
     COLUMNAS_CON_ALIAS = {
@@ -261,9 +491,9 @@ class Config:
         'IMPRESORAS_SUMINISTROS': {'nombres_posibles': ['Impresoras con suministros (toner, hojas)', 'Impresoras con suministros', 'Impresoras con insumos'], 'nombre_estandar': 'Impresoras con suministros (toner, hojas)'},
         'TOTAL_SERVIDORES': {'nombres_posibles': ['Total de servidores en la plaza', 'Servidores total', 'Cantidad servidores'], 'nombre_estandar': 'Total de servidores en la plaza'},
         'SERVIDORES_FUNCIONAN': {'nombres_posibles': ['Número de servidores que funcionan correctamente', 'Servidores operativos', 'Servidores funcionando'], 'nombre_estandar': 'Número de servidores que funcionan correctamente'},
+        'COORD_ZONA': { 'nombres_posibles': [ 'Coord. Zona','COORD. ZONA', 'Coordinación de Zona', 'Zona', 'Coord_Zona', 'C. Zona' ], 'nombre_estandar': 'Coord. Zona' },
         'MESAS_FUNCIONAN': {'nombres_posibles': ['Cuantas mesas funcionan', 'Mesas operativas', 'Mesas en buen estado'], 'nombre_estandar': 'Cuantas mesas funcionan'},
         'SILLAS_FUNCIONAN': {'nombres_posibles': ['Cuantas sillas funcionan', 'Sillas operativas', 'Sillas en buen estado'], 'nombre_estandar': 'Cuantas sillas funcionan'},
-        'COORD_ZONA': { 'nombres_posibles': [ 'Coord. Zona','COORD. ZONA', 'Coordinación de Zona', 'Zona', 'Coord_Zona', 'C. Zona' ], 'nombre_estandar': 'Coord. Zona' },
         'ANAQUELES_FUNCIONAN': {'nombres_posibles': ['Cuantos Anaqueles funcionan', 'Anaquel operativo', 'Estantes funcionando'], 'nombre_estandar': 'Cuantos Anaqueles funcionan'},
     }
     
@@ -373,82 +603,87 @@ def obtener_valor_seguro(df_fila: pd.Series, clave: str, mapeo_columnas: dict, d
     
     return default
 
-# ==============================================================================
-# 2. CARGA Y PREPARACIÓN DE DATOS
-# ==============================================================================
+def obtener_nombre_columna_seguro(alias, mapeo, df):
+    """Helper para obtener nombre seguro de columna."""
+    if alias in df.columns: 
+        return alias
+    # Buscar en el mapeo inverso si es necesario, o usar la lógica de Config
+    # Por simplicidad, aquí confiamos en que el alias coincida o esté en el mapeo
+    k = Config.obtener_clave_por_nombre_columna(alias)
+    if k and k in mapeo: 
+        return mapeo[k]
+    return alias  # Fallback
+
 def normalizar_texto(texto: str) -> str:
     """Convierte texto a minúsculas, sin acentos ni espacios extra, y lo pone en mayúsculas para la comparación."""
     if not isinstance(texto, str):
         return ""
     return unidecode(texto).strip().upper()
 
-def cargar_y_preparar_excel(config: Config) -> pd.DataFrame | None:
-    """Carga y limpia el archivo Excel de manera robusta."""
-    try:
-        logging.info(f"Iniciando carga del archivo Excel: {config.EXCEL_PATH}")
-        if not os.path.exists(config.EXCEL_PATH):
-            raise FileNotFoundError(f"El archivo '{config.EXCEL_PATH}' no existe.")
+# ==============================================================================
+#  MODIFICACIÓN 2: Función de filtrado inteligente (Helper)
+# ==============================================================================
+def filtrar_df_cascada(df, filtros):
+    """
+    Filtra el DataFrame aplicando condiciones AND de forma segura y optimizada.
+    
+    Args:
+        df: DataFrame a filtrar (usualmente el del último mes).
+        filtros: dict {'ALIAS_COLUMNA': 'Valor Buscado'} 
+                 Ej: {'ESTADO': 'Jalisco', 'MUNICIPIO': 'Guadalajara'}
+    """
+    if df.empty: return df
+    
+    df_res = df.copy()
+    mapeo = dataframe_cache.get_mapeo_columnas()
+    
+    # Mapa de claves de alias a nombres de columnas optimizadas 
+    cols_optimizadas = {
+        'ESTADO': 'normalized_estado',
+        'COORD_ZONA': 'normalized_zona',
+        'MUNICIPIO': 'normalized_municipio',
+        'LOCALIDAD': 'normalized_localidad',
+        'CLAVE_PLAZA': 'normalized_clave'
+    }
 
-        # Leer con dtype especificado para la clave para evitar conversiones automáticas
-        # Si la columna se llama 'Clave_Plaza' en el Excel, esto funcionará directo.
-        # Si no, pandas podría no aplicar el dtype si el nombre difiere, pero lo manejamos luego.
-        df = pd.read_excel(config.EXCEL_PATH)
-
-        if df.empty:
-            logging.warning("El archivo Excel está vacío.")
-            return pd.DataFrame()
-
-        df.columns = [str(col).strip() for col in df.columns]
-
-        columnas_a_normalizar = [
-            config.COLUMNA_ESTADO, config.COLUMNA_COORD_ZONA,
-            config.COLUMNA_MUNICIPIO, config.COLUMNA_LOCALIDAD
-        ]
+    for clave_alias, valor in filtros.items():
+        if not valor: continue # Si el filtro viene vacío, ignorar
         
-        for col_name in columnas_a_normalizar:
-            if col_name in df.columns:
-                df[f"normalized_{col_name.lower()}"] = df[col_name].fillna('').astype(str).apply(normalizar_texto)
-            else:
-                logging.warning(f"ADVERTENCIA: La columna de filtro '{col_name}' no se encontró.")
-        
-        # Encontrar la columna de clave usando los alias
-        col_clave_real = Config.obtener_nombre_columna('CLAVE_PLAZA', df)
-        
-        if col_clave_real:
-            # Normalizar la clave para búsquedas
-            df[config.COLUMNA_CLAVE] = df[col_clave_real].fillna('').astype(str).str.strip().str.upper()
+        val_norm = normalizar_texto(valor)
+        col_opt = cols_optimizadas.get(clave_alias)
+        col_real = mapeo.get(clave_alias)
+
+        # ESTRATEGIA 1: Búsqueda Rápida (Columna Normalizada + Categoría)
+        if col_opt and col_opt in df_res.columns:
+            # Pandas es extremadamente rápido filtrando categorías
+            df_res = df_res[df_res[col_opt] == val_norm]
+            
+        # ESTRATEGIA 2: Búsqueda Lenta pero Segura (Fallback si falla la optimización)
+        elif col_real and col_real in df_res.columns:
+            # logging.warning(f"⚠️ Usando filtro lento (fallback) para {clave_alias}")
+            df_res = df_res[df_res[col_real].fillna('').astype(str).apply(normalizar_texto) == val_norm]
+            
+        # CASO DE ERROR: La columna no existe en el archivo
         else:
-            raise ValueError(f"CRÍTICO: La columna clave '{config.COLUMNA_CLAVE}' no se encontró.")
+            logging.error(f"❌ Imposible filtrar por {clave_alias}: La columna no se encuentra.")
+            return pd.DataFrame() # Devolver vacío para no filtrar mal y mostrar todo
 
-        for col_name in [config.COLUMNA_LATITUD, config.COLUMNA_LONGITUD]:
-            if col_name in df.columns:
-                df[col_name] = pd.to_numeric(df[col_name], errors='coerce')
-
-        logging.info("Archivo Excel cargado y procesado exitosamente.")
-        return df
-
-    except FileNotFoundError as e:
-        logging.error(f"Error de archivo no encontrado: {e}")
-    except Exception as e:
-        logging.error(f"Error inesperado al leer el Excel. Detalle: {e}")
-    return None
-
-df_plazas = cargar_y_preparar_excel(Config)
-
-if not os.path.isdir(Config.IMAGES_BASE_PATH):
-    logging.warning(f"La carpeta de imágenes '{Config.IMAGES_BASE_PATH}' no fue encontrada.")
+    return df_res
 
 # ==============================================================================
-# 3. FUNCIÓN AUXILIAR 
+# 3. FUNCIÓN AUXILIAR FALTANTE - AGREGADA (optimizada con cache)
 # ==============================================================================
-def obtener_df_ultimo_mes(df: pd.DataFrame) -> pd.DataFrame:
+@lru_cache(maxsize=1)
+def obtener_df_ultimo_mes_cached():
     """
     Filtra el DataFrame para obtener solo los datos del último mes disponible.
+    Con cache LRU para evitar reprocesamiento.
     """
+    df = dataframe_cache.get_dataframe()
+    
     try:
         # Verificar si existe la columna de mes
         if Config.COLUMNA_CVE_MES not in df.columns:
-            # logging.warning("Columna Cve-mes no encontrada, devolviendo DataFrame completo")
             return df.copy()
         
         # Convertir a numérico para ordenar correctamente
@@ -459,7 +694,6 @@ def obtener_df_ultimo_mes(df: pd.DataFrame) -> pd.DataFrame:
         max_mes = df_temp['__temp_cve_mes'].max()
         
         if pd.isna(max_mes):
-            # logging.warning("No se encontraron valores numéricos válidos en Cve-mes")
             return df.copy()
         
         # Filtrar por el mes más reciente
@@ -469,15 +703,21 @@ def obtener_df_ultimo_mes(df: pd.DataFrame) -> pd.DataFrame:
         if '__temp_cve_mes' in df_filtrado.columns:
             df_filtrado = df_filtrado.drop('__temp_cve_mes', axis=1)
         
-        # logging.info(f"Filtrado para último mes ({int(max_mes)}): {len(df_filtrado)} registros de {len(df)} totales")
         return df_filtrado
         
     except Exception as e:
         logging.error(f"Error al filtrar por último mes: {e}")
         return df.copy()
 
+# Función wrapper para compatibilidad
+def obtener_df_ultimo_mes(df: pd.DataFrame) -> pd.DataFrame:
+    """
+    Versión wrapper para mantener compatibilidad con código existente.
+    """
+    return obtener_df_ultimo_mes_cached()
+
 # ==============================================================================
-# 4. RUTAS DE LA API (ENDPOINTS)
+# 4. RUTAS DE LA API (ENDPOINTS) - OPTIMIZADAS
 # ==============================================================================
 @app.route('/')
 def home():
@@ -488,7 +728,13 @@ def obtener_opciones_unicas(df: pd.DataFrame, columna: str) -> list:
     """Obtiene valores únicos, sin nulos/vacíos y ordenados de una columna."""
     if df is None or columna not in df.columns:
         return []
-    opciones = df[columna].dropna().unique()
+    
+    # Usar categorías si está disponible para mayor velocidad
+    if df[columna].dtype.name == 'category':
+        opciones = df[columna].cat.categories.tolist()
+    else:
+        opciones = df[columna].dropna().unique()
+    
     # Usar convertir_a_serializable para que no falle al devolver JSON
     opciones_limpias = [convertir_a_serializable(opc) for opc in opciones if str(opc).strip()]
     
@@ -498,7 +744,8 @@ def obtener_opciones_unicas(df: pd.DataFrame, columna: str) -> list:
 
 @app.route('/api/estados')
 def get_estados():
-    estados = obtener_opciones_unicas(df_plazas, Config.COLUMNA_ESTADO)
+    df = dataframe_cache.get_dataframe()
+    estados = obtener_opciones_unicas(df, Config.COLUMNA_ESTADO)
     if not estados:
         return jsonify({'error': 'La información de estados no está disponible.'}), 500
     return jsonify(estados)
@@ -507,104 +754,118 @@ def get_estados():
 def get_estados_con_conteo():
     """Devuelve los estados con el conteo de plazas DEL ÚLTIMO MES."""
     try:
-        if df_plazas is None or df_plazas.empty:
+        estados_con_conteo = dataframe_cache.get_estados_cache()
+        
+        if not estados_con_conteo:
             return jsonify({'error': 'No hay datos disponibles'}), 503
         
-        # --- CAMBIO: Usar solo el último mes ---
-        df_actual = obtener_df_ultimo_mes(df_plazas)
-        # ---------------------------------------
-
-        # Contar plazas por estado (usando claves únicas por si acaso)
-        estado_counts = df_actual.groupby(Config.COLUMNA_ESTADO)[Config.COLUMNA_CLAVE].nunique()
-        
-        estados_con_conteo = []
-        for estado, count in estado_counts.items():
-            estados_con_conteo.append({
-                'nombre': str(estado),
-                'cantidad': int(count)
-            })
-        
-        # Ordenar por cantidad descendente
-        estados_con_conteo.sort(key=lambda x: x['cantidad'], reverse=True)
-        
-        return jsonify(estados_con_conteo)
+        #  USAR json_response en lugar de jsonify para mayor velocidad
+        return json_response(estados_con_conteo)
         
     except Exception as e:
         logging.error(f"Error obteniendo estados con conteo: {e}")
         return jsonify({'error': 'Error al obtener estados con conteo'}), 500
 
+#  MODIFICACIÓN 3: Endpoints de cascada optimizados
 @app.route('/api/zonas')
 def get_zonas_por_estado():
-    """Devuelve las 'Coord. Zona' para un estado dado."""
+    """Devuelve las zonas para un estado (Optimizado)."""
     estado = request.args.get('estado', '')
     if not estado:
-        return jsonify({'error': 'Se requiere un estado.'}), 400
+        return jsonify([]) # Retornar lista vacía si no hay estado
+
+    # 1. Obtener datos (último mes)
+    df_actual = dataframe_cache.get_ultimo_mes()
     
-    col_estado_norm = f"normalized_{Config.COLUMNA_ESTADO.lower()}"
-    df_filtrado = df_plazas[df_plazas[col_estado_norm] == normalizar_texto(estado)]
+    # 2. Filtrar usando la función inteligente
+    df_filtrado = filtrar_df_cascada(df_actual, {'ESTADO': estado})
     
-    zonas = obtener_opciones_unicas(df_filtrado, Config.COLUMNA_COORD_ZONA)
+    # 3. Obtener columna real para extraer los nombres originales
+    col_zona = dataframe_cache.get_mapeo_columnas().get('COORD_ZONA')
+    
+    if not col_zona: return jsonify([])
+
+    zonas = obtener_opciones_unicas(df_filtrado, col_zona)
     return jsonify(zonas)
 
 @app.route('/api/municipios')
 def get_municipios_por_zona():
-    """Devuelve los municipios para un estado y zona dados."""
+    """Devuelve los municipios para un estado y zona (Optimizado)."""
     estado = request.args.get('estado', '')
     zona = request.args.get('zona', '')
+    
+    # Validación estricta: si falta alguno, devuelve vacío para no romper la cascada
     if not estado or not zona:
-        return jsonify({'error': 'Se requieren estado y zona.'}), 400
+        return jsonify([])
 
-    col_estado_norm = f"normalized_{Config.COLUMNA_ESTADO.lower()}"
-    col_zona_norm = f"normalized_{Config.COLUMNA_COORD_ZONA.lower()}"
+    df_actual = dataframe_cache.get_ultimo_mes()
+    
+    # Filtro cascada seguro
+    df_filtrado = filtrar_df_cascada(df_actual, {
+        'ESTADO': estado,
+        'COORD_ZONA': zona
+    })
+    
+    col_mun = dataframe_cache.get_mapeo_columnas().get('MUNICIPIO')
+    if not col_mun: return jsonify([])
 
-    df_filtrado = df_plazas[
-        (df_plazas[col_estado_norm] == normalizar_texto(estado)) &
-        (df_plazas[col_zona_norm] == normalizar_texto(zona))
-    ]
-    municipios = obtener_opciones_unicas(df_filtrado, Config.COLUMNA_MUNICIPIO)
+    municipios = obtener_opciones_unicas(df_filtrado, col_mun)
     return jsonify(municipios)
 
 @app.route('/api/localidades')
 def get_localidades_por_municipio():
-    """Devuelve las localidades para un estado, zona y municipio dados."""
+    """Devuelve las localidades filtradas (Optimizado)."""
     estado = request.args.get('estado', '')
     zona = request.args.get('zona', '')
     municipio = request.args.get('municipio', '')
-    if not all([estado, zona, municipio]):
-        return jsonify({'error': 'Se requieren estado, zona y municipio.'}), 400
-
-    col_estado_norm = f"normalized_{Config.COLUMNA_ESTADO.lower()}"
-    col_zona_norm = f"normalized_{Config.COLUMNA_COORD_ZONA.lower()}"
-    col_municipio_norm = f"normalized_{Config.COLUMNA_MUNICIPIO.lower()}"
     
-    df_filtrado = df_plazas[
-        (df_plazas[col_estado_norm] == normalizar_texto(estado)) &
-        (df_plazas[col_zona_norm] == normalizar_texto(zona)) &
-        (df_plazas[col_municipio_norm] == normalizar_texto(municipio))
-    ]
-    localidades = obtener_opciones_unicas(df_filtrado, Config.COLUMNA_LOCALIDAD)
+    if not all([estado, zona, municipio]):
+        return jsonify([])
+
+    df_actual = dataframe_cache.get_ultimo_mes()
+    
+    # Filtro cascada seguro
+    df_filtrado = filtrar_df_cascada(df_actual, {
+        'ESTADO': estado,
+        'COORD_ZONA': zona,
+        'MUNICIPIO': municipio
+    })
+    
+    col_loc = dataframe_cache.get_mapeo_columnas().get('LOCALIDAD')
+    if not col_loc: return jsonify([])
+
+    localidades = obtener_opciones_unicas(df_filtrado, col_loc)
     return jsonify(localidades)
 
 @app.route('/api/claves_plaza')
 def get_claves_por_localidad():
-    """Devuelve las claves de plaza finales basadas en todos los filtros."""
+    """Devuelve las claves filtradas hasta localidad (Optimizado)."""
     estado = request.args.get('estado', '')
     zona = request.args.get('zona', '')
     municipio = request.args.get('municipio', '')
     localidad = request.args.get('localidad', '')
+    
     if not all([estado, zona, municipio, localidad]):
-        return jsonify({'error': 'Se requieren todos los filtros.'}), 400
+        return jsonify([])
 
-    df_filtrado = df_plazas[
-        (df_plazas[f"normalized_{Config.COLUMNA_ESTADO.lower()}"] == normalizar_texto(estado)) &
-        (df_plazas[f"normalized_{Config.COLUMNA_COORD_ZONA.lower()}"] == normalizar_texto(zona)) &
-        (df_plazas[f"normalized_{Config.COLUMNA_MUNICIPIO.lower()}"] == normalizar_texto(municipio)) &
-        (df_plazas[f"normalized_{Config.COLUMNA_LOCALIDAD.lower()}"] == normalizar_texto(localidad))
-    ]
-    claves = obtener_opciones_unicas(df_filtrado, Config.COLUMNA_CLAVE)
+    df_actual = dataframe_cache.get_ultimo_mes()
+    
+    # Filtro cascada seguro
+    df_filtrado = filtrar_df_cascada(df_actual, {
+        'ESTADO': estado,
+        'COORD_ZONA': zona,
+        'MUNICIPIO': municipio,
+        'LOCALIDAD': localidad
+    })
+    
+    col_clave = dataframe_cache.get_mapeo_columnas().get('CLAVE_PLAZA')
+    if not col_clave: return jsonify([])
+
+    claves = obtener_opciones_unicas(df_filtrado, col_clave)
     return jsonify(claves)
+
 # ==============================================================================
-# ENDPOINT DE BÚSQUEDA  (Agregados Colonia, Calle, Num, CP)
+# ENDPOINT DE BÚSQUEDA BLINDADO Y CORREGIDO - OPTIMIZADO
 # ==============================================================================
 @app.route('/api/search')
 def api_search_plaza():
@@ -617,44 +878,39 @@ def api_search_plaza():
         if not clave_busqueda:
             return jsonify({'error': 'Proporciona una clave.'}), 400
         
-        if df_plazas is None or df_plazas.empty:
+        df_actual = dataframe_cache.get_ultimo_mes()
+        
+        if df_actual.empty:
             return jsonify({'error': 'Base de datos no cargada.'}), 503
 
         # 2. Asegurar que usamos el nombre correcto de la columna
         columna_clave = 'Clave_Plaza'
-        if columna_clave not in df_plazas.columns:
-            mapeo = inicializar_mapeo_columnas(df_plazas)
+        if columna_clave not in df_actual.columns:
+            mapeo = dataframe_cache.get_mapeo_columnas()
             columna_clave = mapeo.get('CLAVE_PLAZA')
             if not columna_clave:
                 return jsonify({'error': f'No se encuentra la columna Clave_Plaza en el Excel.'}), 500
 
-        # 3. Filtrar usando el ÚLTIMO MES disponible
-        df_actual = obtener_df_ultimo_mes(df_plazas)
-
-        # 4. Búsqueda ROBUSTA
+        # 3. Búsqueda ROBUSTA
         mask = df_actual[columna_clave].astype(str).str.strip().str.upper() == clave_busqueda
         plaza_data = df_actual[mask]
 
         if plaza_data.empty:
             return jsonify({'error': f'No se encontraron resultados para: {clave_busqueda}'}), 404
 
-        # 5. Obtener la primera coincidencia
+        # 4. Obtener la primera coincidencia
         fila = plaza_data.iloc[0]
-        # Convertimos la fila a diccionario
         plaza_dict_raw = fila.to_dict()
-        
-        # APLICAR EL LIMPIADOR RECURSIVO
         plaza_dict_clean = convertir_a_serializable(plaza_dict_raw)
 
-        # 6. Preparar el mapeo para extraer datos seguros
-        mapeo_cols = inicializar_mapeo_columnas(df_plazas)
+        # 5. Preparar el mapeo para extraer datos seguros
+        mapeo_cols = dataframe_cache.get_mapeo_columnas()
         
         def get_val(key):
-            # Obtener y limpiar inmediatamente
             raw_val = obtener_valor_seguro(fila, key, mapeo_cols)
             return convertir_a_serializable(raw_val)
 
-        # 7. Construir dirección y coordenadas
+        # 6. Construir dirección y coordenadas
         partes_dir = [
             str(get_val('COLONIA') or ''),
             str(get_val('CALLE') or ''),
@@ -672,14 +928,14 @@ def api_search_plaza():
             except:
                 pass
 
-        # 8. Buscar imágenes
+        # 7. Buscar imágenes
         images = []
         try:
             images = find_image_urls(clave_busqueda)
         except Exception as e:
             print(f"⚠️ Error buscando imágenes: {e}")
 
-        # 9. Estructurar respuesta 
+        # 8. Estructurar respuesta
         datos_organizados = {
             'informacion_general': {
                 'Clave_Plaza': get_val('CLAVE_PLAZA'),
@@ -751,7 +1007,7 @@ def api_search_plaza():
             }
         }
 
-        # 10. Limpieza final de la respuesta JSON
+        # 9. Limpieza final de la respuesta JSON
         todos_los_datos = {
             k: v 
             for k, v in plaza_dict_clean.items() 
@@ -803,10 +1059,8 @@ def find_image_urls(clave_original: str) -> list:
                             # Convertir a URL de vista directa (remover parámetros de descarga)
                             direct_url = image_url.replace('&export=download', '').replace('?usp=drivesdk', '')
                             image_list.append(direct_url)
-                            # logging.info(f"✅ Imagen encontrada: {child.get('name')} -> {direct_url}")
                         else:
                             pass
-                            # logging.warning(f"⚠️ Imagen sin URL: {child.get('name')}")
                 return True
             
             for child in tree.get('children', []):
@@ -818,10 +1072,8 @@ def find_image_urls(clave_original: str) -> list:
         found = search_images_in_tree(drive_data['structure'], clave_lower)
         
         if not found:
-            # logging.warning(f"❌ Carpeta '{clave_lower}' no encontrada en Drive")
             pass
         elif not image_list:
-            # logging.warning(f"⚠️ Carpeta '{clave_lower}' encontrada pero sin imágenes")
             pass
         else:
             logging.info(f"🎉 Encontradas {len(image_list)} imágenes para '{clave_lower}'")
@@ -838,48 +1090,39 @@ def serve_image(filename: str):
     return send_from_directory(Config.IMAGES_BASE_PATH, filename)
 
 # ==============================================================================
-# 6. ESTADÍSTICAS CON NUEVAS COLUMNAS 
+# 6. ENDPOINT DE ESTADÍSTICAS CON NUEVAS COLUMNAS - OPTIMIZADO
 # ==============================================================================
 @app.route('/api/estadisticas')
 def get_estadisticas():
     """Devuelve estadísticas generales basadas en el ÚLTIMO MES REPORTADO."""
     try:
-        if df_plazas is None or df_plazas.empty:
+        df_actual = dataframe_cache.get_ultimo_mes()
+        
+        if df_actual.empty:
             return jsonify({'error': 'No hay datos disponibles'}), 503
         
         # ============================================================
         # 0️⃣ FILTRADO POR ÚLTIMO MES (Lógica Solicitada)
         # ============================================================
-        # Trabajaremos con un DataFrame filtrado solo para los conteos de "Situación actual"
-        df_actual = df_plazas.copy()
         mes_usado = "Todos (Histórico)"
 
         if Config.COLUMNA_CVE_MES in df_actual.columns:
-            # Convertir a numérico para asegurar orden correcto (evitar que "10" sea menor que "2" en string)
-            # Usamos una columna temporal para no afectar el df original global si no se desea
-            col_temp = '__temp_cve_mes'
-            df_actual[col_temp] = pd.to_numeric(df_actual[Config.COLUMNA_CVE_MES], errors='coerce')
-            
-            # Obtener el máximo valor (el mes más reciente)
-            max_mes = df_actual[col_temp].max()
+            # Obtener el mes más reciente
+            df_temp = df_actual.copy()
+            df_temp['__temp_cve_mes'] = pd.to_numeric(df_temp[Config.COLUMNA_CVE_MES], errors='coerce')
+            max_mes = df_temp['__temp_cve_mes'].max()
             
             if pd.notna(max_mes):
-                # Filtrar el DataFrame para mantener solo los registros del último mes
-                df_actual = df_actual[df_actual[col_temp] == max_mes]
                 mes_usado = str(int(max_mes))
                 logging.info(f"Calculando estadísticas sobre el mes más reciente: {mes_usado}")
-            else:
-                logging.warning("La columna Cve-mes existe pero no tiene valores numéricos válidos.")
 
         # ============================================================
-        # 1️⃣ Estadísticas generales básicas (Usando df_actual filtrado)
+        # 1️⃣ Estadísticas generales básicas
         # ============================================================
-        # Usamos nunique() en la Clave_Plaza para asegurar que sean plazas únicas
         total_plazas = df_actual[Config.COLUMNA_CLAVE].nunique()
         
-        # Contar plazas en operación en el mes actual
+        # Contar plazas en operación
         if Config.COLUMNA_SITUACION in df_actual.columns:
-            # Filtramos por situación y luego contamos claves únicas
             df_operacion = df_actual[
                 df_actual[Config.COLUMNA_SITUACION].fillna('').astype(str).str.strip().str.upper() == 'EN OPERACIÓN'
             ]
@@ -888,17 +1131,13 @@ def get_estadisticas():
             plazas_operacion = 0
         
         # ============================================================
-        # 2️⃣ Estado con más y menos plazas (Usando df_actual)
+        # 2️⃣ Estado con más y menos plazas
         # ============================================================
-        # Es importante usar df_actual aquí también, de lo contrario un estado 
-        # parecería tener el doble de plazas si hay 2 meses cargados.
-        
         total_estados = 0
         estado_mas_plazas = {'nombre': 'N/A', 'cantidad': 0}
         estado_menos_plazas = {'nombre': 'N/A', 'cantidad': 0}
 
         if Config.COLUMNA_ESTADO in df_actual.columns:
-            # Contamos claves únicas por estado
             estado_counts = df_actual.groupby(Config.COLUMNA_ESTADO)[Config.COLUMNA_CLAVE].nunique().sort_values(ascending=False)
             total_estados = len(estado_counts)
 
@@ -913,19 +1152,16 @@ def get_estadisticas():
                 }
 
         # ============================================================
-        # 3️⃣ Estado con mayor conectividad (Usando df_actual)
+        # 3️⃣ Estado con mayor conectividad
         # ============================================================
         estado_mayor_conectividad = {'nombre': 'N/A', 'porcentaje': 0}
         
         if Config.COLUMNA_CONECT_INSTALADA in df_actual.columns:
             df_conect = df_actual.copy()
-
-            # Normalizar columna: contar como 1 si hay algo distinto de vacío, NA, None, etc.
             df_conect['conectiva'] = df_conect[Config.COLUMNA_CONECT_INSTALADA].apply(
                 lambda v: 1 if pd.notna(v) and str(v).strip().lower() not in ['', 'nan', 'na', 'none', 'null', '0'] else 0
             )
 
-            # Promedio de conectividad por estado
             conect_por_estado = (
                 df_conect.groupby(Config.COLUMNA_ESTADO)['conectiva']
                 .mean()
@@ -939,7 +1175,7 @@ def get_estadisticas():
                 }
 
         # ============================================================
-        # 4️⃣ Estado con mayor porcentaje de Operación/Suspensión (Usando df_actual)
+        # 4️⃣ Estado con mayor porcentaje de Operación/Suspensión
         # ============================================================
         estado_mas_operacion = {'nombre': 'N/A', 'porcentaje': 0}
         estado_mas_suspension = {'nombre': 'N/A', 'porcentaje': 0}
@@ -948,13 +1184,10 @@ def get_estadisticas():
             df_sit = df_actual.copy()
             df_sit['Situacion_Norm'] = df_sit[Config.COLUMNA_SITUACION].fillna('').astype(str).str.strip().str.upper()
 
-            # Calculamos totales por estado
             conteo_por_estado = df_sit.groupby([Config.COLUMNA_ESTADO, 'Situacion_Norm'])[Config.COLUMNA_CLAVE].nunique().unstack(fill_value=0)
             
-            # Añadir columna total si no existe para evitar división por cero
             conteo_por_estado['Total_Estado'] = conteo_por_estado.sum(axis=1)
             
-            # Calcular porcentajes
             if 'EN OPERACIÓN' in conteo_por_estado.columns:
                 conteo_por_estado['Pct_Operacion'] = conteo_por_estado['EN OPERACIÓN'] / conteo_por_estado['Total_Estado']
                 top_op = conteo_por_estado['Pct_Operacion'].idxmax()
@@ -972,12 +1205,9 @@ def get_estadisticas():
                 }
 
         # ============================================================
-        # 5️⃣ Estadísticas de equipamiento (Sumatoria del mes actual)
+        # 5️⃣ Estadísticas de equipamiento
         # ============================================================
         estadisticas_equipamiento = {}
-        
-        # Nota: Aquí usamos sum() sobre df_actual. Si una plaza aparece una vez en df_actual, 
-        # sus equipos se suman una sola vez, lo cual es correcto.
         
         if Config.COLUMNA_TOTAL_EQUIPOS_COMPUTO in df_actual.columns:
             equipos_operando = pd.to_numeric(df_actual[Config.COLUMNA_EQUIPOS_COMPUTO_OPERAN], errors='coerce').sum()
@@ -1002,7 +1232,7 @@ def get_estadisticas():
             }
 
         # ============================================================
-        # 6️⃣ Estadísticas de mobiliario (Sumatoria del mes actual)
+        # 6️⃣ Estadísticas de mobiliario
         # ============================================================
         estadisticas_mobiliario = {}
         
@@ -1018,10 +1248,8 @@ def get_estadisticas():
                 estadisticas_mobiliario[item] = float(total)
 
         # ============================================================
-        # 7️⃣ Estadísticas de CN (Acumuladas al mes actual)
+        # 7️⃣ Estadísticas de certificaciones
         # ============================================================
-        # Como las columnas dicen "Acum" (ej. CN_Inicial_Acum), tomar el dato del último mes
-        # es la forma correcta de ver el acumulado del año hasta la fecha.
         estadisticas_certificaciones = {}
         
         cn_columns = [
@@ -1040,7 +1268,8 @@ def get_estadisticas():
         # ============================================================
         # 🔹 Respuesta final
         # ============================================================
-        return jsonify({
+        #  USAR json_response en lugar de jsonify para mayor velocidad
+        return json_response({
             'meta': {'mes_reportado': mes_usado},
             'totalPlazas': int(total_plazas),
             'plazasOperacion': int(plazas_operacion),
@@ -1053,7 +1282,6 @@ def get_estadisticas():
             'estadisticasEquipamiento': estadisticas_equipamiento,
             'estadisticasMobiliario': estadisticas_mobiliario,
             'estadisticasCertificaciones': estadisticas_certificaciones
-           
         })
         
     except Exception as e:
@@ -1063,16 +1291,42 @@ def get_estadisticas():
         return jsonify({'error': 'Error al generar estadísticas'}), 500
 
 # ==============================================================================
-# 7. ENDPOINT PARA OBTENER COLUMNAS DISPONIBLES
+# ENDPOINT PARA REFRESCAR CACHE
 # ==============================================================================
+@app.route('/api/refresh-cache', methods=['POST'])
+def refresh_cache():
+    """Endpoint para forzar refresco del cache del DataFrame."""
+    try:
+        dataframe_cache.refresh_cache()
+        return jsonify({
+            'status': 'success',
+            'message': 'Cache refrescado exitosamente',
+            'timestamp': datetime.now().isoformat()
+        })
+    except Exception as e:
+        logging.error(f"Error refrescando cache: {e}")
+        return jsonify({'status': 'error', 'message': str(e)}), 500
+
+# ==============================================================================
+# NOTA: Mantengo el resto de los endpoints (8-20) como estaban, 
+# pero ahora usan dataframe_cache en lugar de df_plazas global
+# ==============================================================================
+
+# En los endpoints restantes, reemplaza todas las referencias a:
+# df_plazas -> dataframe_cache.get_dataframe()
+# df_actual (cuando se refiere al último mes) -> dataframe_cache.get_ultimo_mes()
+
+# Por ejemplo, en el endpoint /api/columnas-disponibles:
 @app.route('/api/columnas-disponibles')
 def get_columnas_disponibles():
     """Devuelve la lista de columnas disponibles en el dataset."""
     try:
-        if df_plazas is None or df_plazas.empty:
+        df = dataframe_cache.get_dataframe()
+        
+        if df.empty:
             return jsonify({'error': 'No hay datos disponibles'}), 503
         
-        columnas = list(df_plazas.columns)
+        columnas = list(df.columns)
         
         # Filtrar columnas normalizadas
         columnas_reales = [col for col in columnas if not col.startswith('normalized_')]
@@ -1088,18 +1342,22 @@ def get_columnas_disponibles():
         logging.error(f"Error obteniendo columnas disponibles: {e}")
         return jsonify({'error': 'Error al obtener columnas disponibles'}), 500
 
+# Continuar con el resto de los endpoints, aplicando el mismo patrón...
+
 # ==============================================================================
-# 8. ENDPOINT PARA OBTENER DATOS DETALLADOS DE UNA PLAZA 
+# 8. ENDPOINT PARA OBTENER DATOS DETALLADOS DE UNA PLAZA (VERSIÓN COMPLETA)
 # ==============================================================================
 @app.route('/api/plaza-detallada/<clave>')
 def get_plaza_detallada(clave):
     """Devuelve TODOS los datos de una plaza específica."""
     try:
-        if df_plazas is None or df_plazas.empty:
+        df = dataframe_cache.get_dataframe()
+        
+        if df.empty:
             return jsonify({'error': 'No hay datos disponibles'}), 503
         
         clave_busqueda = clave.strip().upper()
-        plaza_data = df_plazas[df_plazas[Config.COLUMNA_CLAVE] == clave_busqueda]
+        plaza_data = df[df[Config.COLUMNA_CLAVE] == clave_busqueda]
         
         if plaza_data.empty:
             return jsonify({'error': f'No se encontró la plaza con clave: {clave}'}), 404
@@ -1185,10 +1443,12 @@ def get_plaza_detallada(clave):
 def get_estados_populares():
     """Devuelve los estados con más plazas para las pestañas rápidas."""
     try:
-        if df_plazas is None or df_plazas.empty:
+        df = dataframe_cache.get_ultimo_mes()
+        
+        if df.empty:
             return jsonify({'error': 'No hay datos disponibles'}), 503
         
-        estado_counts = df_plazas[Config.COLUMNA_ESTADO].value_counts()
+        estado_counts = df[Config.COLUMNA_ESTADO].value_counts()
         estados_populares = []
         
         for estado, count in estado_counts.head(8).items():
@@ -1206,13 +1466,11 @@ def get_estados_populares():
 def get_plazas_por_estado(estado):
     """Devuelve las plazas de un estado específico (SOLO ÚLTIMO MES)."""
     try:
-        if df_plazas is None or df_plazas.empty:
+        df_actual = dataframe_cache.get_ultimo_mes()
+        
+        if df_actual.empty:
             return jsonify({'error': 'No hay datos disponibles'}), 503
         
-        # --- CAMBIO: Usar solo el último mes ---
-        df_actual = obtener_df_ultimo_mes(df_plazas)
-        # ---------------------------------------
-
         df_filtrado = df_actual[df_actual[Config.COLUMNA_ESTADO] == estado]
         
         if df_filtrado.empty:
@@ -1248,13 +1506,11 @@ def busqueda_global():
         if not query or len(query) < 2:
             return jsonify([])
         
-        if df_plazas is None or df_plazas.empty:
+        df_actual = dataframe_cache.get_ultimo_mes()
+        
+        if df_actual.empty:
             return jsonify({'error': 'No hay datos disponibles'}), 503
         
-        # --- CAMBIO: Usar solo el último mes ---
-        df_actual = obtener_df_ultimo_mes(df_plazas)
-        # ---------------------------------------
-
         resultados = []
         columnas_busqueda = [
             Config.COLUMNA_CLAVE, Config.COLUMNA_ESTADO, Config.COLUMNA_MUNICIPIO,
@@ -1283,6 +1539,7 @@ def busqueda_global():
                         'columna_encontrada': columna
                     })
                     break 
+        
         resultados_unicos = []
         claves_vistas = set()
         for resultado in resultados:
@@ -1298,34 +1555,32 @@ def busqueda_global():
 @app.route('/api/cn_resumen')
 def cn_resumen():
     """
-    Resumen nacional de CN_Inicial_Acum, CN_Prim_Acum, CN_Sec_Acum:
-    - Sumas: Calculadas sobre TODO el dataset (Histórico).
-    - Plazas en operación: Calculadas SOLO sobre el ÚLTIMO MES.
+    Resumen nacional de CN. CORREGIDO para usar Alias de columnas.
     """
     try:
-        if df_plazas is None or df_plazas.empty:
+        df_completo = dataframe_cache.get_dataframe()
+        df_actual = dataframe_cache.get_ultimo_mes()
+        
+        if df_completo.empty:
             return jsonify({'error': 'No hay datos disponibles'}), 503
 
-        cols = ['CN_Inicial_Acum', 'CN_Prim_Acum', 'CN_Sec_Acum']
-        missing_cols = [c for c in cols if c not in df_plazas.columns]
-        if missing_cols:
-            return jsonify({'error': 'Faltan columnas', 'faltantes': missing_cols}), 400
-
-        # 1. DataFrame COMPLETO (para las sumatorias)
-        df_tmp = df_plazas.copy()
+        # 1. OBTENER NOMBRES REALES USANDO EL MAPEO (Alias)
+        mapeo = dataframe_cache.get_mapeo_columnas()
         
-        # 2. DataFrame FILTRADO (para conteo de plazas actuales)
-        df_actual = obtener_df_ultimo_mes(df_plazas) 
+        # Diccionario: Clave Interna -> Nombre Real en el Excel
+        cols_map = {
+            'CN_Inicial_Acum': mapeo.get('CN_INICIAL_ACUM'),
+            'CN_Prim_Acum':    mapeo.get('CN_PRIM_ACUM'),
+            'CN_Sec_Acum':     mapeo.get('CN_SEC_ACUM')
+        }
 
-        # Convertir a numérico en AMBOS dataframes
-        for c in cols:
-            col_key = f'__{c}_num'
-            df_tmp[col_key] = pd.to_numeric(df_tmp[c], errors='coerce')
-            df_actual[col_key] = pd.to_numeric(df_actual[c], errors='coerce')
-
+        # 2. DataFrame COMPLETO (para las sumatorias) - Usamos copia para no afectar cache
+        df_tmp = df_completo.copy()
+        
         # 3. Crear máscara de operación SOLO en el DataFrame ACTUAL
-        if Config.COLUMNA_SITUACION in df_actual.columns:
-            mask_operacion_actual = df_actual[Config.COLUMNA_SITUACION].fillna('').astype(str).str.strip().str.upper() == 'EN OPERACIÓN'
+        col_situacion = mapeo.get('SITUACION')
+        if col_situacion and col_situacion in df_actual.columns:
+            mask_operacion_actual = df_actual[col_situacion].fillna('').astype(str).str.strip().str.upper() == 'EN OPERACIÓN'
         else:
             mask_operacion_actual = pd.Series([False] * len(df_actual), index=df_actual.index)
 
@@ -1333,16 +1588,30 @@ def cn_resumen():
         resumen_nacional = {}
         cn_total_nacional = 0
         
-        for c in cols:
-            colnum = f'__{c}_num'
+        for clave_interna, nombre_real in cols_map.items():
+            colnum = f'__{clave_interna}_num'
             
-            # --- A. CÁLCULO DE SUMAS (Usando df_tmp - Histórico) ---
-            n_nulos = df_tmp[colnum].isna().sum()
-            suma = float(df_tmp[colnum].fillna(0).sum())
+            # Si la columna no existe en el Excel, llenamos con 0 para no romper el sistema
+            if not nombre_real or nombre_real not in df_tmp.columns:
+                df_tmp[colnum] = 0
+                df_actual[colnum] = 0
+                n_nulos = total_registros
+                suma = 0.0
+            else:
+                # Convertir a numérico de forma segura
+                df_tmp[colnum] = pd.to_numeric(df_tmp[nombre_real], errors='coerce')
+                # También en el actual para contar plazas operativas
+                if nombre_real in df_actual.columns:
+                    df_actual[colnum] = pd.to_numeric(df_actual[nombre_real], errors='coerce')
+                else:
+                    df_actual[colnum] = 0
+
+                n_nulos = df_tmp[colnum].isna().sum()
+                suma = float(df_tmp[colnum].fillna(0).sum())
+
             cn_total_nacional += suma
             
-            # --- B. CÁLCULO DE PLAZAS (Usando df_actual - Último Mes) ---
-            # Contamos cuántas plazas del mes actual tienen este indicador > 0 y están en operación
+            # CÁLCULO DE PLAZAS EN OPERACIÓN (Solo mes actual)
             if mask_operacion_actual.any():
                 plazas_operacion_cat = len(df_actual[
                     mask_operacion_actual & 
@@ -1351,7 +1620,7 @@ def cn_resumen():
             else:
                 plazas_operacion_cat = 0
             
-            resumen_nacional[c] = {
+            resumen_nacional[clave_interna] = {
                 'total_registros': int(total_registros),
                 'nulos': int(n_nulos),
                 'pct_nulos': round(n_nulos / total_registros * 100, 2) if total_registros > 0 else 0.0,
@@ -1370,111 +1639,163 @@ def cn_resumen():
             'plazasOperacion': plazas_operacion_total 
         }
 
-        if Config.COLUMNA_ESTADO in df_tmp.columns:
+        # Top 5 se mantiene igual (sobre el histórico)
+        col_estado = mapeo.get('ESTADO')
+        top5 = []
+        
+        if col_estado and col_estado in df_tmp.columns:
             df_tmp['__CN_Total_num'] = (
-                df_tmp['__CN_Inicial_Acum_num'].fillna(0) + 
-                df_tmp['__CN_Prim_Acum_num'].fillna(0) + 
-                df_tmp['__CN_Sec_Acum_num'].fillna(0)
+                df_tmp[f'__{"CN_Inicial_Acum"}_num'].fillna(0) + 
+                df_tmp[f'__{"CN_Prim_Acum"}_num'].fillna(0) + 
+                df_tmp[f'__{"CN_Sec_Acum"}_num'].fillna(0)
             )
             
-            grp = df_tmp.groupby(Config.COLUMNA_ESTADO)['__CN_Total_num'].sum().sort_values(ascending=False)
+            grp = df_tmp.groupby(col_estado)['__CN_Total_num'].sum().sort_values(ascending=False)
             top5 = [{'estado': str(idx), 'suma_CN_Total': float(v)} for idx,v in grp.head(5).items()]
-        else:
-            top5 = []
 
-        return jsonify({
+        return json_response({
             'resumen_nacional': resumen_nacional,
             'top5_estados_por_CN_Total': top5
         })
     except Exception as e:
         logging.error(f"Error en /api/cn_resumen: {e}")
-        return jsonify({'error': 'Error generando resumen CN'}), 500
-
+        import traceback
+        logging.error(traceback.format_exc())
+        return jsonify({'error': f'Error interno: {str(e)}'}), 500
+    
 @app.route('/api/cn_por_estado')
 def cn_por_estado():
     """
-    Agregados por estado: 
-    - Sumas (CN): Histórico completo.
-    - Total Plazas: SOLO ÚLTIMO MES.
+    CORREGIDO: Elimina el error 'tuple index out of range' convirtiendo Series a Dicts
+    antes de acceder a ellas y manejando DataFrames vacíos.
     """
     try:
-        if df_plazas is None or df_plazas.empty:
+        # 1. Cargar datos
+        df_historico = dataframe_cache.get_dataframe().copy()
+        df_actual = dataframe_cache.get_ultimo_mes().copy()
+        
+        if df_historico.empty:
             return jsonify({'error': 'No hay datos disponibles'}), 503
 
-        cols = ['CN_Inicial_Acum', 'CN_Prim_Acum', 'CN_Sec_Acum']
-        missing_cols = [c for c in cols if c not in df_plazas.columns]
-        if missing_cols:
-            return jsonify({'error': 'Faltan columnas', 'faltantes': missing_cols}), 400
+        # 2. Obtener nombres reales de columnas (Mapeo seguro)
+        mapeo = dataframe_cache.get_mapeo_columnas()
+        col_estado = mapeo.get('ESTADO', 'Estado')
+        col_situacion = mapeo.get('SITUACION', 'Situación')
+        col_conect = mapeo.get('CONECT_INSTALADA', 'Conect_Instalada')
 
-        # 1. DataFrame HISTÓRICO (para las sumas de certificaciones)
-        df_historico = df_plazas.copy()
+        # Validación crítica
+        if col_estado not in df_actual.columns:
+            return jsonify({'error': f'Columna {col_estado} no encontrada'}), 500
+
+        # 3. PRE-CALCULAR DICCIONARIOS (Evita error de índice en bucles)
+        # Convertimos .size() (que devuelve Series) a .to_dict() inmediatamente
         
-        # 2. DataFrame ACTUAL (para contar las plazas activas del último mes)
-        df_actual = obtener_df_ultimo_mes(df_plazas)
+        # A) Total plazas actuales por estado
+        conteo_plazas_actuales = df_actual.groupby(col_estado).size().to_dict()
+        
+        # B) Plazas en operación
+        plazas_operacion_dict = {}
+        if col_situacion in df_actual.columns:
+            # Normalizar para filtrar
+            sit_norm = df_actual[col_situacion].astype(str).str.strip().str.upper()
+            mask_op = sit_norm == 'EN OPERACIÓN'
+            plazas_operacion_dict = df_actual[mask_op].groupby(col_estado).size().to_dict()
 
-        # Convertir columnas numéricas en ambos
-        for c in cols:
-            col_key = f'__{c}_num'
-            df_historico[col_key] = pd.to_numeric(df_historico[c], errors='coerce')
-            # No necesitamos convertir en df_actual si solo vamos a contar filas, 
-            # pero lo hacemos por si acaso.
+        # C) Conectividad
+        conectividad_dict = {}
+        if col_conect in df_actual.columns and col_situacion in df_actual.columns:
+            # Lógica: En operación AND (Conectividad != vacio/0/false)
+            mask_op = df_actual[col_situacion].astype(str).str.strip().str.upper() == 'EN OPERACIÓN'
+            df_op = df_actual[mask_op].copy()
+            
+            # Limpieza básica de conectividad
+            def es_valido(val):
+                s = str(val).lower().strip()
+                return s not in ['nan', 'none', '0', 'false', 'no', '']
+            
+            mask_conect = df_op[col_conect].apply(es_valido)
+            conectividad_dict = df_op[mask_conect].groupby(col_estado).size().to_dict()
 
-        # Calcular totales nacionales para porcentajes (usando histórico)
-        nacional_totales = {
-            c: float(df_historico[f'__{c}_num'].fillna(0).sum())
-            for c in cols
+        # 4. CALCULAR MÉTRICAS HISTÓRICAS (CN)
+        # Definir columnas de métricas numéricas
+        cols_cn = {
+            'CN_Inicial_Acum': mapeo.get('CN_INICIAL_ACUM', 'CN_Inicial_Acum'),
+            'CN_Prim_Acum': mapeo.get('CN_PRIM_ACUM', 'CN_Prim_Acum'),
+            'CN_Sec_Acum': mapeo.get('CN_SEC_ACUM', 'CN_Sec_Acum')
         }
-        cn_total_nacional = sum(nacional_totales.values())
 
-        # Agrupar datos históricos
-        grouped_historico = df_historico.groupby(Config.COLUMNA_ESTADO)
-        
-        # Pre-calcular conteos de plazas por estado del MES ACTUAL
-        # Esto nos da una Series con el conteo real de plazas hoy
-        conteo_plazas_actuales = df_actual.groupby(Config.COLUMNA_ESTADO).size()
+        # Asegurar tipos numéricos en el histórico (rellenar NaN con 0)
+        cn_total_nacional = 0
+        for key, col_name in cols_cn.items():
+            temp_col = f'__{key}_num'
+            if col_name in df_historico.columns:
+                df_historico[temp_col] = pd.to_numeric(df_historico[col_name], errors='coerce').fillna(0)
+            else:
+                df_historico[temp_col] = 0
+            cn_total_nacional += df_historico[temp_col].sum()
 
+        # 5. CONSTRUIR RESPUESTA ITERANDO GRUPOS
         estados_summary = []
         
-        # Iteramos sobre los grupos históricos para obtener las sumas
-        for estado, g in grouped_historico:
-        
-            # Obtenemos el total de plazas del último mes para este estado.
-            # Si no hay datos en el mes actual para este estado, es 0.
-            total_plazas_actual = int(conteo_plazas_actuales.get(estado, 0))
-            
-            # Sumas históricas (se mantienen igual)
-            s_inicial = float(g['__CN_Inicial_Acum_num'].fillna(0).sum())
-            s_prim = float(g['__CN_Prim_Acum_num'].fillna(0).sum())
-            s_sec = float(g['__CN_Sec_Acum_num'].fillna(0).sum())
-            s_total = s_inicial + s_prim + s_sec
-            
-            # Promedio (opcional, sobre histórico)
-            mean_inicial = float(g['__CN_Inicial_Acum_num'].dropna().mean()) if g['__CN_Inicial_Acum_num'].dropna().shape[0]>0 else 0.0
+        # Agrupar histórico por estado
+        grouped = df_historico.groupby(col_estado)
 
-            pct_sobre_nacional = round((s_total / cn_total_nacional * 100), 2) if cn_total_nacional > 0 else 0.0
+        for estado, grupo in grouped:
+            # IMPORTANTE: Manejar si 'estado' es una tupla (pasa a veces con groupby complejos)
+            estado_key = estado[0] if isinstance(estado, tuple) else estado
+            estado_str = str(estado_key).strip()
+
+            # Obtener datos de los diccionarios pre-calculados (Búsqueda O(1) segura)
+            total_plazas = int(conteo_plazas_actuales.get(estado_key, 0))
+            plazas_operacion = int(plazas_operacion_dict.get(estado_key, 0))
+            conectados = int(conectividad_dict.get(estado_key, 0))
+
+            # Calcular porcentaje conectividad
+            pct_conect = 0.0
+            if plazas_operacion > 0:
+                pct_conect = round((conectados / plazas_operacion) * 100, 1)
+
+            # Sumar métricas del grupo histórico
+            suma_inicial = float(grupo['__CN_Inicial_Acum_num'].sum())
+            suma_prim = float(grupo['__CN_Prim_Acum_num'].sum())
+            suma_sec = float(grupo['__CN_Sec_Acum_num'].sum())
+            suma_total = suma_inicial + suma_prim + suma_sec
+
+            # Porcentaje sobre nacional
+            pct_nacional = 0.0
+            if cn_total_nacional > 0:
+                pct_nacional = round((suma_total / cn_total_nacional) * 100, 2)
 
             estados_summary.append({
-                'estado': str(estado),
-                'total_plazas': total_plazas_actual, # <--- DATO CORREGIDO
-                'suma_CN_Inicial_Acum': round(s_inicial, 2),
-                'suma_CN_Prim_Acum': round(s_prim, 2),
-                'suma_CN_Sec_Acum': round(s_sec, 2),
-                'suma_CN_Total': round(s_total, 2),
-                'promedio_CN_Inicial_Acum': round(mean_inicial, 2),
-                'pct_sobre_nacional': pct_sobre_nacional
+                'estado': estado_str,
+                'total_plazas': total_plazas,
+                'plazas_operacion': plazas_operacion,
+                'conectados_actual': conectados,
+                'pct_conectividad': pct_conect,
+                'suma_CN_Inicial_Acum': int(suma_inicial),
+                'suma_CN_Prim_Acum': int(suma_prim),
+                'suma_CN_Sec_Acum': int(suma_sec),
+                'suma_CN_Total': int(suma_total),
+                'pct_sobre_nacional': pct_nacional
             })
 
-        estados_sorted = sorted(estados_summary, key=lambda x: x['suma_CN_Inicial_Acum'], reverse=True)
-        
-        return jsonify({
-            'nacional_totales': {k: round(v, 2) for k,v in nacional_totales.items()},
-            'cn_total_nacional': round(cn_total_nacional, 2),
-            'estados': estados_sorted
+        # Ordenar por CN Total descendente
+        estados_summary.sort(key=lambda x: x['suma_CN_Total'], reverse=True)
+
+        return json_response({
+            'status': 'success',
+            'estados': estados_summary,
+            'metadata': {
+                'cn_total_nacional': int(cn_total_nacional),
+                'total_estados_procesados': len(estados_summary)
+            }
         })
-        
+
     except Exception as e:
-        logging.error(f"Error en /api/cn_por_estado: {e}")
-        return jsonify({'error': 'Error generando CN por estado'}), 500
+        import traceback
+        logging.error(f"❌ Error CRÍTICO en /api/cn_por_estado: {str(e)}")
+        logging.error(traceback.format_exc())
+        return jsonify({'error': f'Error interno: {str(e)}'}), 500
 
 @app.route('/api/cn_top_estados')
 def cn_top_estados():
@@ -1492,10 +1813,11 @@ def cn_top_estados():
         }
         col_key = {'inicial': 'CN_Inicial_Acum', 'prim': 'CN_Prim_Acum', 'sec': 'CN_Sec_Acum'}[metric]
 
-        if col_key not in df_plazas.columns:
+        df_tmp = dataframe_cache.get_dataframe()
+        
+        if col_key not in df_tmp.columns:
             return jsonify({'error': f'No existe la columna {col_key}'}), 400
 
-        df_tmp = df_plazas.copy()
         for c in ['CN_Inicial_Acum','CN_Prim_Acum','CN_Sec_Acum']:
             df_tmp[f'__{c}_num'] = pd.to_numeric(df_tmp[c], errors='coerce').fillna(0)
 
@@ -1510,15 +1832,16 @@ def cn_top_estados():
 def cn_estados_destacados():
     """Devuelve los estados #1 en cada categoría de cn"""
     try:
-        if df_plazas is None or df_plazas.empty:
+        df_tmp = dataframe_cache.get_dataframe()
+        
+        if df_tmp.empty:
             return jsonify({'error': 'No hay datos disponibles'}), 503
 
         cols = ['CN_Inicial_Acum', 'CN_Prim_Acum', 'CN_Sec_Acum']
-        missing_cols = [c for c in cols if c not in df_plazas.columns]
+        missing_cols = [c for c in cols if c not in df_tmp.columns]
         if missing_cols:
             return jsonify({'error': 'Faltan columnas', 'faltantes': missing_cols}), 400
 
-        df_tmp = df_plazas.copy()
         for c in cols:
             df_tmp[f'__{c}_num'] = pd.to_numeric(df_tmp[c], errors='coerce').fillna(0)
 
@@ -1544,10 +1867,11 @@ def cn_estados_destacados():
 def cn_top5_todos():
     """Devuelve Top 5 estados para todas las categorías CN"""
     try:
-        if df_plazas is None or df_plazas.empty:
+        df_tmp = dataframe_cache.get_dataframe()
+        
+        if df_tmp.empty:
             return jsonify({'error': 'No hay datos disponibles'}), 503
 
-        df_tmp = df_plazas.copy()
         for c in ['CN_Inicial_Acum','CN_Prim_Acum','CN_Sec_Acum']:
             df_tmp[f'__{c}_num'] = pd.to_numeric(df_tmp[c], errors='coerce').fillna(0)
 
@@ -1573,44 +1897,47 @@ def cn_top5_todos():
 # 9. ENDPOINT PARA FECHA DE ACTUALIZACIÓN
 # ==============================================================================
 @app.route('/api/excel/last-update')
-def get_excel_last_update():
-    """Devuelve la fecha de última modificación del Excel, ajustada un mes atrás (salvo diciembre)."""
+def get_last_update():
+    """Devuelve la fecha de última modificación del Excel, ajustada un mes atrás (salvo Diciembre)."""
     try:
-        if os.path.exists(Config.EXCEL_PATH):
-            timestamp = os.path.getmtime(Config.EXCEL_PATH)
+        # Primero verificar parquet
+        archivo = Config.PARQUET_PATH if os.path.exists(Config.PARQUET_PATH) else Config.EXCEL_PATH
+        
+        if os.path.exists(archivo):
+            timestamp = os.path.getmtime(archivo)
             fecha_real = datetime.fromtimestamp(timestamp)
 
             # Obtener año y mes de la fecha real
             año = fecha_real.year
             mes = fecha_real.month
 
-            # Ajuste de mes
+            
             if mes == 12:
-                # Si es diciembre, no se modifica
-                pass
-            elif mes == 1:
-                # Enero → diciembre del año anterior
+                # Si es diciembre, NO tocamos nada. El código salta todo el bloque 'elif/else'
+                pass 
+            elif mes == 1:  
+                # Si es enero, restamos un año y pasamos a diciembre
                 año -= 1
                 mes = 12
             else:
-                # Meses 2–11 → restar uno
+                # Cualquier otro mes (2-11), restamos 1
                 mes -= 1
+            # ------------------------
 
-            # Crear la fecha ajustada (manteniendo el día si es posible)
+            # Crear la fecha ajustada (manteniendo el mismo día si es posible)
             try:
                 fecha_ajustada = datetime(año, mes, fecha_real.day)
             except ValueError:
-                # Manejo de días inválidos (ej. 31 en meses de 30 días o febrero)
-                if mes == 2:
+                # Lógica para manejar días que no existen (ej: 31 en un mes de 30 días)
+                if mes == 2:  # Febrero
                     if (año % 4 == 0 and año % 100 != 0) or (año % 400 == 0):
                         ultimo_dia = 29
                     else:
                         ultimo_dia = 28
-                elif mes in [4, 6, 9, 11]:
+                elif mes in [4, 6, 9, 11]: 
                     ultimo_dia = 30
-                else:
+                else: 
                     ultimo_dia = 31
-
                 fecha_ajustada = datetime(año, mes, ultimo_dia)
 
             return jsonify({
@@ -1618,7 +1945,8 @@ def get_excel_last_update():
                 "mensaje": "Última actualización procesada",
                 "last_modified_real": fecha_real.isoformat(),
                 "last_modified": fecha_ajustada.isoformat(),
-                "formatted": fecha_ajustada.strftime('%d/%m/%Y')
+                "formatted": fecha_ajustada.strftime('%d/%m/%Y'),
+                "archivo_fuente": os.path.basename(archivo)
             }), 200
 
         return jsonify({
@@ -2529,18 +2857,22 @@ def get_system_info():
             years = []
             total_months = 0
         
-        # Información del Excel local
+        # Información del cache local
+        df = dataframe_cache.get_dataframe()
         local_excel_info = {
-            'exists': os.path.exists(Config.EXCEL_PATH),
-            'last_modified': None,
-            'total_plazas': len(df_plazas) if df_plazas is not None else 0
+            'exists': not df.empty,
+            'total_plazas': len(df) if not df.empty else 0,
+            'fuente_datos': 'parquet' if os.path.exists(Config.PARQUET_PATH) else 'excel_emergencia'
         }
         
-        if local_excel_info['exists']:
-            timestamp = os.path.getmtime(Config.EXCEL_PATH)
-            local_excel_info['last_modified'] = datetime.fromtimestamp(timestamp).isoformat()
+        # Verificar archivos fuente
+        archivos = {
+            'parquet': os.path.exists(Config.PARQUET_PATH),
+            'excel': os.path.exists(Config.EXCEL_PATH)
+        }
         
-        return jsonify({
+        #  USAR json_response en lugar de jsonify para mayor velocidad
+        return json_response({
             'status': 'success',
             'system': {
                 'timestamp': datetime.now().isoformat(),
@@ -2559,7 +2891,15 @@ def get_system_info():
                     'drive_downloads': drive_stats.get('drive_downloads', 0)
                 }
             },
-            'local_data': local_excel_info,
+            'local_cache': {
+                'dataframe_en_memoria': not df.empty,
+                'registros': len(df),
+                'columnas': len(df.columns) if not df.empty else 0,
+                'ultimo_mes_registros': len(dataframe_cache.get_ultimo_mes()) if not df.empty else 0,
+                'estados_cacheados': len(dataframe_cache.get_estados_cache()) if not df.empty else 0,
+                'fuente_actual': local_excel_info['fuente_datos']
+            },
+            'archivos_disco': archivos,
             'available_years': years
         })
         
@@ -2579,10 +2919,18 @@ def get_datos_completos():
         else:
             años, meses_por_año = [], {}
         
+        # Información del cache local
+        df = dataframe_cache.get_dataframe()
+        
         datos_completos = {
             'años_disponibles': años,
             'meses_por_año': meses_por_año,
             'drive_modules_available': DRIVE_MODULES_AVAILABLE,
+            'cache_local': {
+                'registros': len(df),
+                'columnas': list(df.columns) if not df.empty else [],
+                'muestra': df.head(5).fillna('').to_dict('records') if not df.empty else []
+            },
             'ultima_actualizacion': datetime.now().isoformat()
         }
         
@@ -2613,15 +2961,17 @@ def buscar_estados_comparativa():
             })
         
         # Usar los datos locales de plazas para buscar estados
-        if df_plazas is None or df_plazas.empty:
+        df = dataframe_cache.get_dataframe()
+        
+        if df.empty:
             return jsonify({
                 'status': 'error',
                 'message': 'No hay datos disponibles'
             }), 503
         
         # Obtener estados únicos que coincidan con la búsqueda
-        if Config.COLUMNA_ESTADO in df_plazas.columns:
-            estados_unicos = df_plazas[Config.COLUMNA_ESTADO].dropna().unique()
+        if Config.COLUMNA_ESTADO in df.columns:
+            estados_unicos = df[Config.COLUMNA_ESTADO].dropna().unique()
             
             resultados = []
             for estado in estados_unicos:
@@ -2655,7 +3005,7 @@ def buscar_estados_comparativa():
         return jsonify({'status': 'error', 'message': str(e)}), 500
     
 # ==============================================================================
-# HISTORIAL DE UNA PLAZA (Para tablas interactivas)
+# NUEVO ENDPOINT: HISTORIAL DE UNA PLAZA (Para tablas interactivas)
 # ==============================================================================
 @app.route('/api/plaza-historial')
 def get_plaza_historial():
@@ -2663,34 +3013,36 @@ def get_plaza_historial():
     try:
         clave_busqueda = request.args.get('clave', '').strip().upper()
         
-        if not clave_busqueda or df_plazas is None:
+        if not clave_busqueda:
+            return jsonify([])
+
+        df = dataframe_cache.get_dataframe()
+        
+        if df.empty:
             return jsonify([])
 
         # 1. Identificar columna clave
         columna_clave = 'Clave_Plaza'
-        if columna_clave not in df_plazas.columns:
-            mapeo = inicializar_mapeo_columnas(df_plazas)
+        if columna_clave not in df.columns:
+            mapeo = dataframe_cache.get_mapeo_columnas()
             columna_clave = mapeo.get('CLAVE_PLAZA')
             if not columna_clave:
                 return jsonify([])
 
         # 2. Filtrar todas las filas de esa plaza (Histórico completo)
-        # Convertimos a string para asegurar el match
-        mask = df_plazas[columna_clave].astype(str).str.strip().str.upper() == clave_busqueda
-        df_historial = df_plazas[mask].copy()
+        mask = df[columna_clave].astype(str).str.strip().str.upper() == clave_busqueda
+        df_historial = df[mask].copy()
 
         if df_historial.empty:
             return jsonify([])
 
         # 3. Ordenar por Año y Mes (Descendente: más reciente primero)
-        # Aseguramos que sean numéricos para ordenar bien
         if Config.COLUMNA_ANO in df_historial.columns and Config.COLUMNA_CVE_MES in df_historial.columns:
             df_historial['__sort_anio'] = pd.to_numeric(df_historial[Config.COLUMNA_ANO], errors='coerce').fillna(0)
             df_historial['__sort_mes'] = pd.to_numeric(df_historial[Config.COLUMNA_CVE_MES], errors='coerce').fillna(0)
             df_historial = df_historial.sort_values(by=['__sort_anio', '__sort_mes'], ascending=[False, False])
 
         # 4. Seleccionar columnas relevantes para la tabla de Atención/Productividad
-        # (Incluimos las fechas para el selector)
         cols_interes = [
             'Año', 'Cve-mes', 'Mes',
             'Inc_Inicial', 'Inc_Prim', 'Inc_Sec', 'Inc_Total',
@@ -2702,17 +3054,17 @@ def get_plaza_historial():
         ]
         
         # Mapear nombres reales del Excel si usan alias
-        mapeo_cols = inicializar_mapeo_columnas(df_plazas)
+        mapeo_cols = dataframe_cache.get_mapeo_columnas()
         cols_finales = []
         for c in cols_interes:
-            real = obtener_nombre_columna_seguro(c, mapeo_cols, df_plazas) # Helper simple o búsqueda directa
-            if real: cols_finales.append(real)
+            real = obtener_nombre_columna_seguro(c, mapeo_cols, df)
+            if real: 
+                cols_finales.append(real)
             
         # 5. Convertir a lista de diccionarios limpia
         historial_data = []
         for _, row in df_historial.iterrows():
             row_dict = row.to_dict()
-            # Usamos el limpiador 'convertir_a_serializable' que ya definimos antes
             clean_dict = convertir_a_serializable(row_dict)
             historial_data.append(clean_dict)
 
@@ -2722,381 +3074,1003 @@ def get_plaza_historial():
         logging.error(f"Error obteniendo historial: {e}")
         return jsonify([])
 
-# Helper rápido para nombres de columnas (puedes ponerlo junto a los otros helpers)
-def obtener_nombre_columna_seguro(alias, mapeo, df):
-    if alias in df.columns: return alias
-    # Buscar en el mapeo inverso si es necesario, o usar la lógica de Config
-    # Por simplicidad, aquí confiamos en que el alias coincida o esté en el mapeo
-    k = Config.obtener_clave_por_nombre_columna(alias)
-    if k and k in mapeo: return mapeo[k]
-    return alias # Fallback
 # ==============================================================================
-# NUEVO ENDPOINT: METRICAS DETALLADAS POR ESTADO (BLINDADO PARA SUMAS)
+# CORRECCIÓN EN APP.PY - Función get_metricas_por_estado (DEFINIDA UNA VEZ)
 # ==============================================================================
 @app.route('/api/metricas-por-estado/<estado>')
 def get_metricas_por_estado(estado):
     """
-    Devuelve las métricas de atención y certificación para todas las plazas de un estado.
-    - Filtra por el ÚLTIMO MES.
-    - Asegura que los números sean números (0 si es nulo) para que el JS pueda sumar.
-    - INCLUYE DATOS AGRUPADOS POR MUNICIPIO en el mismo JSON.
+    Devuelve las métricas de plazas y el acumulado por municipios.
+    Estructura JSON: { "plazas": [...], "municipios": [...] }
     """
     try:
-        if df_plazas is None or df_plazas.empty:
-            return jsonify({
-                "plazas": [],
-                "municipios": []
-            })
+        df_actual = dataframe_cache.get_ultimo_mes()
+        
+        if df_actual.empty:
+            return jsonify({'plazas': [], 'municipios': []})
 
-        # 1. Filtrar por último mes disponible (Usando la función auxiliar existente)
-        df_actual = obtener_df_ultimo_mes(df_plazas)
-        
-        # 2. Filtrar por Estado (Normalizando texto para evitar errores de acentos/mayúsculas)
+        # 1. Filtrar por Estado
         estado_busqueda = normalizar_texto(estado)
-        
-        # Intentamos buscar en la columna normalizada si existe, si no, calculamos al vuelo
         col_estado_norm = f"normalized_{Config.COLUMNA_ESTADO.lower()}"
         
         if col_estado_norm in df_actual.columns:
             mask = df_actual[col_estado_norm] == estado_busqueda
         else:
-            # Fallback: normalizar al vuelo
             mask = df_actual[Config.COLUMNA_ESTADO].astype(str).apply(normalizar_texto) == estado_busqueda
             
         df_estado = df_actual[mask].copy()
 
         if df_estado.empty:
-            return jsonify({
-                "plazas": [],
-                "municipios": []
-            })
+            return jsonify({'plazas': [], 'municipios': []})
 
-        # 3. Definir las columnas que el JS espera (Claves exactas del frontend)
-        columnas_exportar = [
-            # Identificadores
-            'Clave_Plaza', 'Nombre_PC', 'Municipio', 
-            # Métricas numéricas
+        # 2. Definir columnas numéricas para métricas
+        columnas_metricas = [
             'Aten_Inicial', 'Aten_Prim', 'Aten_Sec', 'Aten_Total', 
             'Exámenes aplicados',
             'CN_Inicial_Acum', 'CN_Prim_Acum', 'CN_Sec_Acum', 'CN_Tot_Acum',
             'Cert_Emitidos'
         ]
         
-        # Columnas que son métricas numéricas (para la agrupación)
-        metricas_numericas = [
-            'Aten_Inicial', 'Aten_Prim', 'Aten_Sec', 'Aten_Total', 
-            'Exámenes aplicados',
-            'CN_Inicial_Acum', 'CN_Prim_Acum', 'CN_Sec_Acum', 'CN_Tot_Acum',
-            'Cert_Emitidos'
-        ]
+        # Columnas de identificación
+        columnas_info = ['Clave_Plaza', 'Nombre_PC', 'Municipio']
         
-        # Inicializar mapeo para encontrar los nombres reales en el Excel (por si usan alias)
-        mapeo = inicializar_mapeo_columnas(df_plazas)
+        mapeo = dataframe_cache.get_mapeo_columnas()
         
         datos_plazas = []
-        # Diccionario temporal para acumular datos por municipio
-        acumulador_municipios = {}
 
+        # 3. Procesar datos de PLAZAS (Iteración fila por fila)
         for _, row in df_estado.iterrows():
             fila_dict = {}
             
-            for col_js in columnas_exportar:
-                # Buscar nombre real de la columna en el Excel usando el sistema de alias
-                # Si es una métrica directa del Excel, buscamos su alias. Si no, usamos el nombre tal cual.
+            # Procesar identificadores
+            for col_js in columnas_info:
                 col_excel = mapeo.get(Config.obtener_clave_por_nombre_columna(col_js)) or col_js
-                
-                # Obtener valor seguro
                 val = row.get(col_excel)
-                
-                # Regla de limpieza:
-                # Si es Texto (Identificadores) -> Dejar como string
-                # Si es Métrica -> Convertir a número (0 si es nulo/texto inválido)
-                if col_js in ['Clave_Plaza', 'Nombre_PC', 'Municipio']:
-                    fila_dict[col_js] = str(val).strip() if pd.notna(val) else "N/D"
-                else:
-                    # Es métrica numérica
-                    try:
-                        # Convertir a float y luego int para quitar decimales .0
-                        num_val = int(float(val)) if pd.notna(val) else 0
-                        fila_dict[col_js] = num_val
-                    except (ValueError, TypeError):
-                        fila_dict[col_js] = 0
+                fila_dict[col_js] = str(val).strip() if pd.notna(val) else "N/D"
+
+            # Procesar métricas numéricas
+            for col_js in columnas_metricas:
+                col_excel = mapeo.get(Config.obtener_clave_por_nombre_columna(col_js)) or col_js
+                val = row.get(col_excel)
+                try:
+                    fila_dict[col_js] = int(float(val)) if pd.notna(val) else 0
+                except (ValueError, TypeError):
+                    fila_dict[col_js] = 0
             
             datos_plazas.append(fila_dict)
+
+        # 4. Calcular Agrupación por MUNICIPIOS
+        municipios_dict = {}
+
+        for plaza in datos_plazas:
+            nom_muni = plaza.get('Municipio', 'Sin Municipio')
             
-            # --- PROCESAMIENTO PARA AGRUPACIÓN POR MUNICIPIO ---
-            municipio = fila_dict.get('Municipio', 'SIN MUNICIPIO')
-            
-            # Si el municipio no existe en el acumulador, inicializarlo
-            if municipio not in acumulador_municipios:
-                acumulador_municipios[municipio] = {
-                    'Municipio': municipio
+            if nom_muni not in municipios_dict:
+                municipios_dict[nom_muni] = {
+                    'Municipio': nom_muni,
+                    # Inicializar contadores en 0
+                    **{k: 0 for k in columnas_metricas}
                 }
-                # Inicializar todas las métricas en 0
-                for metrica in metricas_numericas:
-                    acumulador_municipios[municipio][metrica] = 0
             
-            # Sumar las métricas al municipio correspondiente
-            for metrica in metricas_numericas:
-                acumulador_municipios[municipio][metrica] += fila_dict.get(metrica, 0)
+            # Sumar métricas
+            for k in columnas_metricas:
+                municipios_dict[nom_muni][k] += plaza.get(k, 0)
 
-        # Convertir el diccionario de municipios a lista
-        datos_municipios = list(acumulador_municipios.values())
-        
-        # Ordenar municipios alfabéticamente
-        datos_municipios.sort(key=lambda x: x['Municipio'])
+        datos_municipios = list(municipios_dict.values())
 
+        # 5. Retornar estructura correcta para el Frontend
         return jsonify({
-            "plazas": datos_plazas,
-            "municipios": datos_municipios
+            'plazas': datos_plazas,
+            'municipios': datos_municipios
         })
 
     except Exception as e:
         logging.error(f"Error en métricas por estado: {e}")
-        return jsonify({
-            "plazas": [],
-            "municipios": []
+        import traceback
+        logging.error(traceback.format_exc())
+        return jsonify({'plazas': [], 'municipios': []}), 500
+
+# ==============================================================================
+# 🌟 NUEVA SECCIÓN: MAPA BLINDADO Y AUTOMATIZADO 🌟
+# ==============================================================================
+
+# 1. Ruta para ver el mapa (Carga HTML vacío, ahorra RAM)
+@app.route('/ver-mapa')
+def vista_mapa():
+    """Renderiza la plantilla del mapa con cluster."""
+    return render_template('mapa_cluster.html')
+
+# 2. Endpoint "Ping" de Versión (Para caché automática)
+@app.route('/api/version-coordenadas')
+def check_version():
+    """Devuelve la fecha de modificación del archivo JSON para invalidar caché."""
+    archivo = Config.ARCHIVO_COORDENADAS
+    
+    if not os.path.exists(archivo):
+        return jsonify({'version': None}), 404
+        
+    try:
+        # Timestamp de la última modificación (float)
+        timestamp_modificacion = os.path.getmtime(archivo)
+        return jsonify({'version': timestamp_modificacion})
+    except Exception as e:
+        logging.error(f"Error obteniendo versión de coordenadas: {e}")
+        return jsonify({'error': 'Error interno'}), 500
+
+# 3. Endpoint "Lazy" de Datos (Carga pesada solo bajo demanda)
+@app.route('/api/coordenadas-lazy')
+def get_coordenadas_lazy():
+    """Lee el JSON de disco solo cuando se solicita."""
+    archivo = Config.ARCHIVO_COORDENADAS
+    
+    # Blindaje 1: Existencia
+    if not os.path.exists(archivo):
+        logging.warning(f"⚠️ Archivo de coordenadas no encontrado: {archivo}")
+        return jsonify({'error': 'Archivo de coordenadas no disponible', 'datos': []}), 404
+
+    try:
+        # Blindaje 2: Lectura y Parseo
+        with open(archivo, 'r', encoding='utf-8') as f:
+            data = json.load(f)
+        
+        # Opcional: Validar que sea lista
+        if not isinstance(data, list):
+            raise ValueError("El JSON no es una lista de registros")
+            
+        return jsonify(data)
+
+    except json.JSONDecodeError:
+        logging.error(f"❌ JSON corrupto en {archivo}")
+        return jsonify({'error': 'El archivo de coordenadas está dañado', 'datos': []}), 500
+    except Exception as e:
+        logging.error(f"❌ Error leyendo coordenadas: {e}")
+        return jsonify({'error': str(e), 'datos': []}), 500
+
+# ==============================================================================
+# 19. ENDPOINT PARA MAPA SEGURO - OPTIMIZADO CON CACHE
+# ==============================================================================
+# Cache LRU para el mapa
+@lru_cache(maxsize=5)
+def get_coordenadas_cache():
+    """Cache para coordenadas del mapa"""
+    try:
+        archivo = Config.ARCHIVO_COORDENADAS
+        if not os.path.exists(archivo):
+            return None
+        
+        with open(archivo, 'r', encoding='utf-8') as f:
+            data = json.load(f)
+        
+        # Reducir precisión para reducir payload
+        for item in data:
+            if 'lat' in item:
+                item['lat'] = round(float(item['lat']), 6)
+            if 'lng' in item:
+                item['lng'] = round(float(item['lng']), 6)
+        
+        return data[:1000]  # Limitar a 1000 registros para el mapa
+        
+    except Exception as e:
+        logging.error(f"Error cargando coordenadas cache: {e}")
+        return None
+
+@app.route('/api/mapa/coordenadas-optimizadas')
+def get_coordenadas_optimizadas():
+    """Devuelve coordenadas optimizadas para el mapa con cache"""
+    try:
+        cached_data = get_coordenadas_cache()
+        if cached_data is None:
+            return jsonify({'error': 'Datos no disponibles', 'datos': []}), 404
+        
+        #  USAR json_response en lugar de jsonify para mayor velocidad
+        return json_response({
+            'status': 'success',
+            'total_plazas': len(cached_data),
+            'plazas': cached_data,
+            'cached': True
         })
-# ==============================================================================
-# ENDPOINT: ANALISIS CN COMPLETO CON PLAZAS ÚNICAS POR CATEGORÍA
-# ==============================================================================
-@app.route('/api/analisis-cn-script')
-def analisis_cn_script():
+        
+    except Exception as e:
+        logging.error(f"Error obteniendo coordenadas optimizadas: {e}")
+        return jsonify({'error': str(e), 'datos': []}), 500
+
+@app.route('/api/mapa/seguro')
+def mapa_seguro_endpoint():
     """
-    Replica la lógica del script 'AnalizadorCN' mejorado:
-    1. Totales Globales.
-    2. Totales por Mes.
-    3. Detalle por Estado con plazas únicas por categoría y porcentajes exclusivos.
+    Endpoint seguro para operaciones del mapa.
+    Mueve toda la lógica crítica del frontend al backend.
     """
     try:
-        if df_plazas is None or df_plazas.empty:
-            return jsonify({'error': 'Base de datos no cargada'}), 503
-
-        # --- 1. CONFIGURACIÓN ---
-        mapa_columnas = {
-            'cn_inicial': Config.COLUMNA_CN_INICIAL_ACUM,
-            'cn_primaria': Config.COLUMNA_CN_PRIM_ACUM,
-            'cn_secundaria': Config.COLUMNA_CN_SEC_ACUM,
-            'cn_total': Config.COLUMNA_CN_TOT_ACUM
-        }
+        action = request.args.get('action')
         
-        col_clave = Config.COLUMNA_CLAVE
-        col_mes = Config.COLUMNA_CVE_MES
-        col_estado = Config.COLUMNA_ESTADO
-
-        if col_clave not in df_plazas.columns:
-            return jsonify({'error': f'Columna clave {col_clave} no encontrada'}), 500
-
-        # --- 2. PREPARACIÓN DE DATOS ---
-        # Definir columnas necesarias
-        cols_necesarias = [col_clave] + list(mapa_columnas.values())
-        if col_mes in df_plazas.columns: cols_necesarias.append(col_mes)
-        if col_estado in df_plazas.columns: cols_necesarias.append(col_estado)
+        if action == 'cercanos':
+            return handle_cercanos()
+        elif action == 'calcular-distancia':
+            return handle_calcular_distancia()
+        elif action == 'ruta':
+            return handle_ruta()
+        elif action == 'buscar':
+            return handle_buscar()
+        elif action == 'filtro-estados':
+            return handle_filtro_estados()
+        else:
+            return jsonify({
+                'status': 'error',
+                'message': 'Acción no válida'
+            }), 400
             
-        # Filtrar solo columnas que existen en el DF
-        cols_existentes = [c for c in cols_necesarias if c in df_plazas.columns]
-        df_work = df_plazas[cols_existentes].copy()
+    except Exception as e:
+        logging.error(f"Error en endpoint mapa seguro: {e}")
+        return jsonify({
+            'status': 'error',
+            'message': str(e)
+        }), 500
 
-        # Convertir métricas a numérico y rellenar nulos con 0
-        for key, col_name in mapa_columnas.items():
-            if col_name in df_work.columns:
-                df_work[f'{key}_num'] = pd.to_numeric(df_work[col_name], errors='coerce').fillna(0)
-
-        # --- 3. CÁLCULOS GLOBALES CON PLAZAS ÚNICAS ---
-        resultados_globales = {}
-        df_work['tiene_alguna_cn'] = False # Bandera
-        df_work['tiene_inicial'] = False
-        df_work['tiene_primaria'] = False
-        df_work['tiene_secundaria'] = False
-
-        total_plazas_unicas = df_work[col_clave].nunique()
-
-        for key, col_name in mapa_columnas.items():
-            if col_name in df_work.columns:
-                col_num = f'{key}_num'
-                
-                # Suma Total
-                suma_total = float(df_work[col_num].sum())
-
-                # PLAZAS ÚNICAS CON ACTIVIDAD EN ESTA CATEGORÍA
-                # Agrupar por clave y verificar si alguna fila tiene valor > 0
-                if key == 'cn_inicial':
-                    df_work['tiene_inicial'] = df_work[col_num] > 0
-                elif key == 'cn_primaria':
-                    df_work['tiene_primaria'] = df_work[col_num] > 0
-                elif key == 'cn_secundaria':
-                    df_work['tiene_secundaria'] = df_work[col_num] > 0
-                
-                # Plazas Activas (>0) - Contando claves únicas
-                plazas_activas_por_categoria = df_work[df_work[col_num] > 0][col_clave].nunique()
-                
-                pct = round((plazas_activas_por_categoria / total_plazas_unicas * 100), 1) if total_plazas_unicas > 0 else 0
-
-                resultados_globales[key] = {
-                    'suma_total': suma_total,
-                    'plazas_con_actividad': plazas_activas_por_categoria,  # PLAZAS ÚNICAS
-                    'porcentaje_plazas': pct,
-                    'plazas_unicas_con_actividad': plazas_activas_por_categoria  # Clarificar que son únicas
-                }
-
-                # Lógica combinada: si tiene Inicial, Primaria o Secundaria
-                if key != 'cn_total':
-                    df_work['tiene_alguna_cn'] = df_work['tiene_alguna_cn'] | (df_work[col_num] > 0)
-
-        # Total Combinado "Alguna CN" - SIN DUPLICADOS
-        plazas_con_alguna = df_work.groupby(col_clave)['tiene_alguna_cn'].any().sum()
-        
-        resultados_globales['combinado_alguna_cn'] = {
-            'plazas_unicas_con_actividad': int(plazas_con_alguna),
-            'porcentaje_total': round((plazas_con_alguna / total_plazas_unicas * 100), 1) if total_plazas_unicas > 0 else 0
-        }
-
-        # --- 4. DESGLOSE POR ESTADO CON PLAZAS ÚNICAS POR CATEGORÍA ---
-        desglose_estados = []
-        
-        if col_estado in df_work.columns:
-            # A) Universo total por estado (Plazas Únicas)
-            total_por_estado = df_work.groupby(col_estado)[col_clave].nunique()
+def handle_cercanos():
+    """Calcula las plazas más cercanas a una ubicación."""
+    lat = request.args.get('lat', type=float)
+    lng = request.args.get('lng', type=float)
+    distancia_max = request.args.get('distancia_max', 50, type=float)  # km por defecto
+    limite = request.args.get('limite', 10, type=int)
+    
+    if lat is None or lng is None:
+        return jsonify({
+            'status': 'error',
+            'message': 'Se requieren coordenadas (lat, lng)'
+        }), 400
+    
+    df_actual = dataframe_cache.get_ultimo_mes()
+    
+    if df_actual.empty:
+        return jsonify({
+            'status': 'error',
+            'message': 'No hay datos de plazas disponibles'
+        }), 503
+    
+    # Inicializar mapeo de columnas
+    mapeo = dataframe_cache.get_mapeo_columnas()
+    
+    # Calcular distancias
+    resultados = []
+    for _, plaza in df_actual.iterrows():
+        try:
+            # Obtener coordenadas de la plaza
+            plaza_lat = obtener_valor_seguro(plaza, 'LATITUD', mapeo)
+            plaza_lng = obtener_valor_seguro(plaza, 'LONGITUD', mapeo)
             
-            # B) Plazas que tienen actividad en ALGUNA categoría (sin duplicados)
-            df_activas = df_work[df_work['tiene_alguna_cn']]
-            plazas_activas_por_estado = df_activas.groupby(col_estado)[col_clave].nunique()
-            
-            # C) PLAZAS ÚNICAS POR CATEGORÍA ESPECÍFICA
-            # Inicial
-            df_inicial = df_work[df_work['tiene_inicial']]
-            plazas_inicial_por_estado = df_inicial.groupby(col_estado)[col_clave].nunique()
-            
-            # Primaria
-            df_primaria = df_work[df_work['tiene_primaria']]
-            plazas_primaria_por_estado = df_primaria.groupby(col_estado)[col_clave].nunique()
-            
-            # Secundaria
-            df_secundaria = df_work[df_work['tiene_secundaria']]
-            plazas_secundaria_por_estado = df_secundaria.groupby(col_estado)[col_clave].nunique()
-            
-            # D) Sumas de los valores numéricos por estado
-            cols_suma = ['cn_inicial_num', 'cn_primaria_num', 'cn_secundaria_num']
-            cols_suma_existentes = [c for c in cols_suma if c in df_work.columns]
-            sumas_por_estado = df_work.groupby(col_estado)[cols_suma_existentes].sum()
-
-            # E) Construir la lista final con TODA la información necesaria
-            for estado in total_por_estado.index:
+            if plaza_lat is None or plaza_lng is None:
+                continue
                 
-                # 1. Totales y conteos básicos
-                total = int(total_por_estado.get(estado, 0))
-                con_actividad = int(plazas_activas_por_estado.get(estado, 0))
-                pct_actividad = round((con_actividad / total * 100), 1) if total > 0 else 0
-
-                # 2. Plazas únicas por categoría específica
-                plazas_inicial = int(plazas_inicial_por_estado.get(estado, 0))
-                plazas_primaria = int(plazas_primaria_por_estado.get(estado, 0))
-                plazas_secundaria = int(plazas_secundaria_por_estado.get(estado, 0))
+            # Calcular distancia
+            distancia = calcular_distancia_km(lat, lng, float(plaza_lat), float(plaza_lng))
+            
+            if distancia <= distancia_max:
+                clave = obtener_valor_seguro(plaza, 'CLAVE_PLAZA', mapeo, '')
+                nombre = obtener_valor_seguro(plaza, 'NOMBRE_PC', mapeo, '')
+                estado = obtener_valor_seguro(plaza, 'ESTADO', mapeo, '')
+                municipio = obtener_valor_seguro(plaza, 'MUNICIPIO', mapeo, '')
                 
-                # 3. Porcentajes por categoría (sobre total de plazas del estado)
-                pct_inicial = round((plazas_inicial / total * 100), 1) if total > 0 else 0
-                pct_primaria = round((plazas_primaria / total * 100), 1) if total > 0 else 0
-                pct_secundaria = round((plazas_secundaria / total * 100), 1) if total > 0 else 0
-                
-                # 4. Porcentajes por categoría (sobre plazas con actividad del estado)
-                pct_inicial_activas = round((plazas_inicial / con_actividad * 100), 1) if con_actividad > 0 else 0
-                pct_primaria_activas = round((plazas_primaria / con_actividad * 100), 1) if con_actividad > 0 else 0
-                pct_secundaria_activas = round((plazas_secundaria / con_actividad * 100), 1) if con_actividad > 0 else 0
-
-                # 5. Obtener las sumas específicas
-                s_inicial = 0.0
-                s_primaria = 0.0
-                s_secundaria = 0.0
-
-                if estado in sumas_por_estado.index:
-                    if 'cn_inicial_num' in sumas_por_estado.columns:
-                        s_inicial = float(sumas_por_estado.loc[estado, 'cn_inicial_num'])
-                    if 'cn_primaria_num' in sumas_por_estado.columns:
-                        s_primaria = float(sumas_por_estado.loc[estado, 'cn_primaria_num'])
-                    if 'cn_secundaria_num' in sumas_por_estado.columns:
-                        s_secundaria = float(sumas_por_estado.loc[estado, 'cn_secundaria_num'])
-
-                # 6. Agregar al objeto CON TODA LA INFORMACIÓN
-                desglose_estados.append({
-                    'estado': str(estado),
-                    'total_plazas': total,
-                    'plazas_con_actividad': con_actividad,
-                    'porcentaje': pct_actividad,
-                    
-                    # PLAZAS ÚNICAS POR CATEGORÍA
-                    'plazas_inicial': plazas_inicial,
-                    'plazas_primaria': plazas_primaria,
-                    'plazas_secundaria': plazas_secundaria,
-                    
-                    # PORCENTAJES POR CATEGORÍA (sobre total estado)
-                    'pct_inicial': pct_inicial,
-                    'pct_primaria': pct_primaria,
-                    'pct_secundaria': pct_secundaria,
-                    
-                    # PORCENTAJES POR CATEGORÍA (sobre plazas activas)
-                    'pct_inicial_activas': pct_inicial_activas,
-                    'pct_primaria_activas': pct_primaria_activas,
-                    'pct_secundaria_activas': pct_secundaria_activas,
-                    
-                    # Sumas de valores (para mantener compatibilidad)
-                    'cn_inicial': s_inicial,
-                    'cn_primaria': s_primaria,
-                    'cn_secundaria': s_secundaria,
-                    'cn_total': s_inicial + s_primaria + s_secundaria 
+                resultados.append({
+                    'clave': clave,
+                    'nombre': nombre,
+                    'estado': estado,
+                    'municipio': municipio,
+                    'lat': plaza_lat,
+                    'lng': plaza_lng,
+                    'distancia_km': round(distancia, 2),
+                    'distancia_formateada': f"{distancia:.1f} km"
                 })
+        except Exception as e:
+            logging.warning(f"Error procesando plaza: {e}")
+            continue
+    
+    # Ordenar por distancia
+    resultados.sort(key=lambda x: x['distancia_km'])
+    
+    # Limitar resultados
+    resultados = resultados[:limite]
+    
+    return jsonify({
+        'status': 'success',
+        'ubicacion_usuario': {'lat': lat, 'lng': lng},
+        'distancia_maxima_km': distancia_max,
+        'total_encontradas': len(resultados),
+        'plazas_cercanas': resultados
+    })
 
-            # Ordenar por defecto: mayor cantidad de plazas con actividad arriba
-            desglose_estados.sort(key=lambda x: x['plazas_con_actividad'], reverse=True)
+def handle_calcular_distancia():
+    """Calcula distancia entre dos puntos."""
+    lat1 = request.args.get('lat1', type=float)
+    lng1 = request.args.get('lng1', type=float)
+    lat2 = request.args.get('lat2', type=float)
+    lng2 = request.args.get('lng2', type=float)
+    
+    if None in [lat1, lng1, lat2, lng2]:
+        return jsonify({
+            'status': 'error',
+            'message': 'Se requieren todas las coordenadas'
+        }), 400
+    
+    distancia = calcular_distancia_km(lat1, lng1, lat2, lng2)
+    
+    return jsonify({
+        'status': 'success',
+        'punto1': {'lat': lat1, 'lng': lng1},
+        'punto2': {'lat': lat2, 'lng': lng2},
+        'distancia_km': round(distancia, 2),
+        'distancia_metros': round(distancia * 1000),
+        'distancia_formateada': f"{distancia:.1f} km"
+    })
 
-        # --- 5. DESGLOSE POR MES (opcional, mantener igual) ---
-        desglose_mensual = []
-        if col_mes in df_work.columns:
-            df_work['mes_sort'] = pd.to_numeric(df_work[col_mes], errors='coerce').fillna(0)
-            grp_mes = df_work.groupby('mes_sort')
+def handle_ruta():
+    """Genera información para rutas de navegación."""
+    origen_lat = request.args.get('origen_lat', type=float)
+    origen_lng = request.args.get('origen_lng', type=float)
+    destino_lat = request.args.get('destino_lat', type=float)
+    destino_lng = request.args.get('destino_lng', type=float)
+    destino_nombre = request.args.get('destino_nombre', 'Destino')
+    
+    if None in [origen_lat, origen_lng, destino_lat, destino_lng]:
+        return jsonify({
+            'status': 'error',
+            'message': 'Se requieren coordenadas de origen y destino'
+        }), 400
+    
+    # Calcular distancia
+    distancia = calcular_distancia_km(origen_lat, origen_lng, destino_lat, destino_lng)
+    
+    # Generar URLs de navegación (sin exponer lógica en frontend)
+    urls = {
+        'google_maps': generar_url_google_maps(origen_lat, origen_lng, destino_lat, destino_lng, destino_nombre),
+        'waze': generar_url_waze(destino_lat, destino_lng, destino_nombre),
+        'google_maps_directo': f"https://www.google.com/maps/search/?api=1&query={destino_lat},{destino_lng}",
+        'waze_directo': f"https://www.waze.com/ul?ll={destino_lat},{destino_lng}&navigate=yes"
+    }
+    
+    return jsonify({
+        'status': 'success',
+        'origen': {'lat': origen_lat, 'lng': origen_lng},
+        'destino': {
+            'lat': destino_lat,
+            'lng': destino_lng,
+            'nombre': destino_nombre
+        },
+        'distancia': {
+            'km': round(distancia, 2),
+            'metros': round(distancia * 1000),
+            'formateada': f"{distancia:.1f} km"
+        },
+        'urls_navegacion': urls,
+        'estimacion_tiempo': estimar_tiempo_viaje(distancia)
+    })
+
+def handle_buscar():
+    """Búsqueda avanzada de plazas."""
+    query = request.args.get('q', '').strip()
+    tipo = request.args.get('tipo', 'todas')  # 'exacta', 'parcial', 'todas'
+    limite = request.args.get('limite', 20, type=int)
+    
+    if not query or len(query) < 2:
+        return jsonify({
+            'status': 'error',
+            'message': 'Término de búsqueda demasiado corto'
+        }), 400
+    
+    df_actual = dataframe_cache.get_ultimo_mes()
+    
+    if df_actual.empty:
+        return jsonify({
+            'status': 'error',
+            'message': 'No hay datos disponibles'
+        }), 503
+    
+    mapeo = dataframe_cache.get_mapeo_columnas()
+    
+    # Normalizar query
+    query_normalizada = normalizar_texto(query)
+    
+    resultados = []
+    for _, plaza in df_actual.iterrows():
+        try:
+            # Obtener valores
+            clave = obtener_valor_seguro(plaza, 'CLAVE_PLAZA', mapeo, '')
+            nombre = obtener_valor_seguro(plaza, 'NOMBRE_PC', mapeo, '')
+            estado = obtener_valor_seguro(plaza, 'ESTADO', mapeo, '')
+            municipio = obtener_valor_seguro(plaza, 'MUNICIPIO', mapeo, '')
+            localidad = obtener_valor_seguro(plaza, 'LOCALIDAD', mapeo, '')
+            lat = obtener_valor_seguro(plaza, 'LATITUD', mapeo)
+            lng = obtener_valor_seguro(plaza, 'LONGITUD', mapeo)
             
-            for mes_num, grupo in grp_mes:
-                if mes_num == 0: continue
-                mes_str = str(int(mes_num)).zfill(2)
+            # Normalizar valores para búsqueda
+            clave_norm = normalizar_texto(clave)
+            estado_norm = normalizar_texto(estado)
+            municipio_norm = normalizar_texto(municipio)
+            localidad_norm = normalizar_texto(localidad)
+            nombre_norm = normalizar_texto(nombre)
+            
+            # Determinar tipo de coincidencia
+            coincidencia = None
+            score = 0
+            
+            # Búsqueda exacta por clave
+            if clave_norm == query_normalizada:
+                coincidencia = 'exacta'
+                score = 100
+            # Búsqueda parcial por clave
+            elif query_normalizada in clave_norm:
+                coincidencia = 'clave_parcial'
+                score = 90 - (len(clave_norm) - len(query_normalizada)) * 2
+            # Búsqueda por estado
+            elif query_normalizada in estado_norm:
+                coincidencia = 'estado'
+                score = 80
+            # Búsqueda por municipio
+            elif query_normalizada in municipio_norm:
+                coincidencia = 'municipio'
+                score = 70
+            # Búsqueda por localidad
+            elif query_normalizada in localidad_norm:
+                coincidencia = 'localidad'
+                score = 60
+            # Búsqueda por nombre
+            elif query_normalizada in nombre_norm:
+                coincidencia = 'nombre'
+                score = 50
+            
+            # Si encontramos coincidencia según el tipo solicitado
+            if coincidencia and (tipo == 'todas' or tipo == coincidencia):
+                resultados.append({
+                    'clave': clave,
+                    'nombre': nombre,
+                    'estado': estado,
+                    'municipio': municipio,
+                    'localidad': localidad,
+                    'lat': lat,
+                    'lng': lng,
+                    'tipo_coincidencia': coincidencia,
+                    'score': score,
+                    'highlight': generar_highlight(query, clave, nombre, estado, municipio)
+                })
                 
-                datos_mes = {
-                    'mes': obtener_nombre_mes(mes_str),
-                    'numero_mes': mes_str,
-                    'total_registros_mes': int(len(grupo))
-                }
-                
-                for key in mapa_columnas.keys():
-                    c_num = f'{key}_num'
-                    if c_num in grupo.columns:
-                        datos_mes[key] = float(grupo[c_num].sum())
-                
-                desglose_mensual.append(datos_mes)
+        except Exception as e:
+            logging.warning(f"Error en búsqueda de plaza: {e}")
+            continue
+    
+    # Ordenar por score
+    resultados.sort(key=lambda x: x['score'], reverse=True)
+    
+    # Limitar resultados
+    resultados = resultados[:limite]
+    
+    return jsonify({
+        'status': 'success',
+        'query': query,
+        'tipo_busqueda': tipo,
+        'total_encontradas': len(resultados),
+        'resultados': resultados
+    })
 
-        # RETORNO FINAL CON ESTRUCTURA MEJORADA
+def handle_filtro_estados():
+    """Obtiene estados disponibles para filtro."""
+    df_actual = dataframe_cache.get_ultimo_mes()
+    
+    if df_actual.empty:
+        return jsonify({
+            'status': 'error',
+            'message': 'No hay datos disponibles'
+        }), 503
+    
+    # Obtener estados únicos con conteo
+    if Config.COLUMNA_ESTADO in df_actual.columns:
+        estados_conteo = df_actual[Config.COLUMNA_ESTADO].value_counts().to_dict()
+        
+        estados = []
+        for estado, cantidad in estados_conteo.items():
+            if pd.isna(estado):
+                continue
+                
+            estados.append({
+                'nombre': str(estado),
+                'cantidad': int(cantidad),
+                'codigo': normalizar_texto(str(estado))[:10]  # Para usar como ID
+            })
+        
+        # Ordenar alfabéticamente
+        estados.sort(key=lambda x: x['nombre'])
+        
         return jsonify({
             'status': 'success',
-            'info_general': {
-                'total_plazas_base': int(total_plazas_unicas)
-            },
-            'analisis_global': resultados_globales,
-            'desglose_estados': desglose_estados,
-            'desglose_mensual': desglose_mensual,
-            'metadatos': {
-                'tipo_conteo': 'plazas_unicas',
-                'descripcion': 'Cada plaza cuenta solo una vez por categoría',
-                'version': '2.0'
+            'total_estados': len(estados),
+            'estados': estados
+        })
+    
+    return jsonify({
+        'status': 'error',
+        'message': 'Columna de estados no disponible'
+    }), 400
+
+# ==============================================================================
+# FUNCIONES AUXILIARES PARA EL ENDPOINT DEL MAPA
+# ==============================================================================
+
+def calcular_distancia_km(lat1, lng1, lat2, lng2):
+    """Calcula distancia en kilómetros entre dos coordenadas."""
+    # Radio de la Tierra en kilómetros
+    R = 6371.0
+    
+    # Convertir grados a radianes
+    lat1_rad = math.radians(lat1)
+    lng1_rad = math.radians(lng1)
+    lat2_rad = math.radians(lat2)
+    lng2_rad = math.radians(lng2)
+    
+    # Diferencia de coordenadas
+    dlat = lat2_rad - lat1_rad
+    dlng = lng2_rad - lng1_rad
+    
+    # Fórmula de Haversine
+    a = math.sin(dlat / 2)**2 + math.cos(lat1_rad) * math.cos(lat2_rad) * math.sin(dlng / 2)**2
+    c = 2 * math.atan2(math.sqrt(a), math.sqrt(1 - a))
+    
+    return R * c
+
+def generar_url_google_maps(origen_lat, origen_lng, destino_lat, destino_lng, destino_nombre):
+    """Genera URL de Google Maps para ruta."""
+    nombre_codificado = destino_nombre.replace(' ', '+')
+    return f"https://www.google.com/maps/dir/?api=1&origin={origen_lat},{origen_lng}&destination={destino_lat},{destino_lng}&destination_place_id={nombre_codificado}&travelmode=driving"
+
+def generar_url_waze(destino_lat, destino_lng, destino_nombre):
+    """Genera URL de Waze para navegación."""
+    nombre_codificado = destino_nombre.replace(' ', '+')
+    return f"https://www.waze.com/ul?ll={destino_lat},{destino_lng}&navigate=yes&to={nombre_codificado}"
+
+def estimar_tiempo_viaje(distancia_km):
+    """Estima tiempo de viaje basado en distancia."""
+    # Velocidad promedio en ciudad: 40 km/h
+    tiempo_horas = distancia_km / 40
+    horas = int(tiempo_horas)
+    minutos = int((tiempo_horas - horas) * 60)
+    
+    if horas > 0:
+        return f"{horas}h {minutos}min"
+    else:
+        return f"{minutos} min"
+
+def generar_highlight(query, clave, nombre, estado, municipio):
+    """Genera texto resaltado para resultados de búsqueda."""
+    textos = []
+    query_lower = query.lower()
+    
+    # Buscar coincidencias en cada campo
+    if query_lower in clave.lower():
+        textos.append(f"Clave: <strong>{clave}</strong>")
+    else:
+        textos.append(f"Clave: {clave}")
+    
+    if query_lower in nombre.lower():
+        textos.append(f"Nombre: <strong>{nombre}</strong>")
+    else:
+        textos.append(f"Nombre: {nombre}")
+    
+    if query_lower in estado.lower():
+        textos.append(f"Estado: <strong>{estado}</strong>")
+    else:
+        textos.append(f"Estado: {estado}")
+    
+    if query_lower in municipio.lower():
+        textos.append(f"Municipio: <strong>{municipio}</strong>")
+    else:
+        textos.append(f"Municipio: {municipio}")
+    
+    return " | ".join(textos)
+
+# ==============================================================================
+# ENDPOINT PARA OBTENER TODAS LAS COORDENADAS (optimizado)
+# ==============================================================================
+@app.route('/api/mapa/coordenadas-completas')
+def get_coordenadas_completas():
+    """Devuelve solo datos JSON de plazas, sin HTML en popups."""
+    try:
+        df_actual = dataframe_cache.get_ultimo_mes()
+        
+        if df_actual.empty:
+            return jsonify({'datos': []}), 200
+        
+        mapeo = dataframe_cache.get_mapeo_columnas()
+        
+        plazas = []
+        for _, plaza in df_actual.iterrows():
+            try:
+                lat = obtener_valor_seguro(plaza, 'LATITUD', mapeo)
+                lng = obtener_valor_seguro(plaza, 'LONGITUD', mapeo)
+                
+                # Solo incluir plazas con coordenadas válidas
+                if lat is not None and lng is not None:
+                    plazas.append({
+                        'clave': obtener_valor_seguro(plaza, 'CLAVE_PLAZA', mapeo, ''),
+                        'nombre': obtener_valor_seguro(plaza, 'NOMBRE_PC', mapeo, ''),
+                        'estado': obtener_valor_seguro(plaza, 'ESTADO', mapeo, ''),
+                        'municipio': obtener_valor_seguro(plaza, 'MUNICIPIO', mapeo, ''),
+                        'localidad': obtener_valor_seguro(plaza, 'LOCALIDAD', mapeo, ''),
+                        'lat': float(lat),
+                        'lng': float(lng),
+                        'situacion': obtener_valor_seguro(plaza, 'SITUACION', mapeo, '')
+                    })
+            except Exception as e:
+                logging.debug(f"Error procesando plaza para mapa: {e}")
+                continue
+        
+        # Estadísticas simples
+        estados = {}
+        for plaza in plazas:
+            estado = plaza['estado']
+            if estado not in estados:
+                estados[estado] = 0
+            estados[estado] += 1
+        
+        #  USAR json_response en lugar de jsonify para mayor velocidad
+        return json_response({
+            'status': 'success',
+            'total_plazas': len(plazas),
+            'total_estados': len(estados),
+            'estadisticas_estados': estados,
+            'plazas': plazas  # Solo datos puros
+        })
+        
+    except Exception as e:
+        logging.error(f"Error obteniendo coordenadas completas: {e}")
+        return jsonify({
+            'status': 'error',
+            'message': str(e),
+            'plazas': []
+        }), 500
+
+# ==============================================================================
+# ENDPOINTS ADICIONALES PARA FUNCIONALIDADES COMPLETAS
+# ==============================================================================
+
+@app.route('/api/mapa/ubicar-plaza-cercana')
+def ubicar_plaza_cercana():
+    """Encuentra la plaza más cercana a unas coordenadas."""
+    try:
+        lat = request.args.get('lat', type=float)
+        lng = request.args.get('lng', type=float)
+        
+        if lat is None or lng is None:
+            return jsonify({
+                'status': 'error',
+                'message': 'Se requieren coordenadas (lat, lng)'
+            }), 400
+        
+        df_actual = dataframe_cache.get_ultimo_mes()
+        
+        if df_actual.empty:
+            return jsonify({
+                'status': 'error',
+                'message': 'No hay datos de plazas disponibles'
+            }), 503
+        
+        mapeo = dataframe_cache.get_mapeo_columnas()
+        
+        plaza_mas_cercana = None
+        distancia_minima = float('inf')
+        
+        for _, plaza in df_actual.iterrows():
+            try:
+                plaza_lat = obtener_valor_seguro(plaza, 'LATITUD', mapeo)
+                plaza_lng = obtener_valor_seguro(plaza, 'LONGITUD', mapeo)
+                
+                if plaza_lat is None or plaza_lng is None:
+                    continue
+                
+                distancia = calcular_distancia_km(lat, lng, float(plaza_lat), float(plaza_lng))
+                
+                if distancia < distancia_minima:
+                    distancia_minima = distancia
+                    plaza_mas_cercana = {
+                        'clave': obtener_valor_seguro(plaza, 'CLAVE_PLAZA', mapeo, ''),
+                        'nombre': obtener_valor_seguro(plaza, 'NOMBRE_PC', mapeo, ''),
+                        'estado': obtener_valor_seguro(plaza, 'ESTADO', mapeo, ''),
+                        'municipio': obtener_valor_seguro(plaza, 'MUNICIPIO', mapeo, ''),
+                        'lat': float(plaza_lat),
+                        'lng': float(plaza_lng),
+                        'distancia_km': round(distancia, 2),
+                        'distancia_formateada': f"{distancia:.1f} km"
+                    }
+            except Exception:
+                continue
+        
+        if plaza_mas_cercana is None:
+            return jsonify({
+                'status': 'error',
+                'message': 'No se encontraron plazas cercanas'
+            }), 404
+        
+        return jsonify({
+            'status': 'success',
+            'ubicacion_usuario': {'lat': lat, 'lng': lng},
+            'plaza_mas_cercana': plaza_mas_cercana,
+            'distancia_minima_km': distancia_minima
+        })
+        
+    except Exception as e:
+        logging.error(f"Error ubicando plaza cercana: {e}")
+        return jsonify({'status': 'error', 'message': str(e)}), 500
+
+@app.route('/api/mapa/generar-linea-ruta')
+def generar_linea_ruta():
+    """Genera coordenadas para línea de ruta entre dos puntos."""
+    try:
+        origen_lat = request.args.get('origen_lat', type=float)
+        origen_lng = request.args.get('origen_lng', type=float)
+        destino_lat = request.args.get('destino_lat', type=float)
+        destino_lng = request.args.get('destino_lng', type=float)
+        
+        if None in [origen_lat, origen_lng, destino_lat, destino_lng]:
+            return jsonify({
+                'status': 'error',
+                'message': 'Se requieren todas las coordenadas'
+            }), 400
+        
+        # Calcular puntos intermedios para una línea más suave
+        puntos = calcular_puntos_intermedios(
+            origen_lat, origen_lng, destino_lat, destino_lng, num_puntos=10
+        )
+        
+        distancia = calcular_distancia_km(origen_lat, origen_lng, destino_lat, destino_lng)
+        
+        return jsonify({
+            'status': 'success',
+            'origen': {'lat': origen_lat, 'lng': origen_lng},
+            'destino': {'lat': destino_lat, 'lng': destino_lng},
+            'puntos_ruta': puntos,
+            'distancia_km': round(distancia, 2),
+            'estilo_linea': {
+                'color': '#007bff',
+                'weight': 3,
+                'opacity': 0.7,
+                'dashArray': '10, 10'
             }
         })
-
+        
     except Exception as e:
-        logging.error(f"Error en analisis script: {e}")
-        print(f"ERROR API CN: {e}") 
+        logging.error(f"Error generando línea de ruta: {e}")
         return jsonify({'status': 'error', 'message': str(e)}), 500
+
+@app.route('/api/mapa/opciones-navegacion')
+def opciones_navegacion():
+    """Genera URLs para todas las opciones de navegación."""
+    try:
+        destino_lat = request.args.get('destino_lat', type=float)
+        destino_lng = request.args.get('destino_lng', type=float)
+        destino_nombre = request.args.get('destino_nombre', 'Destino')
+        origen_lat = request.args.get('origen_lat', type=float)
+        origen_lng = request.args.get('origen_lng', type=float)
+        
+        if destino_lat is None or destino_lng is None:
+            return jsonify({
+                'status': 'error',
+                'message': 'Se requieren coordenadas del destino'
+            }), 400
+        
+        # Generar todas las URLs posibles
+        opciones = {
+            'ver_ubicacion': {
+                'google_maps': f"https://www.google.com/maps/search/?api=1&query={destino_lat},{destino_lng}",
+                'waze': f"https://www.waze.com/ul?ll={destino_lat},{destino_lng}&navigate=yes"
+            }
+        }
+        
+        # Si tenemos origen, generar rutas
+        if origen_lat is not None and origen_lng is not None:
+            nombre_codificado = destino_nombre.replace(' ', '+')
+            
+            opciones['crear_ruta'] = {
+                'google_maps': f"https://www.google.com/maps/dir/?api=1&origin={origen_lat},{origen_lng}&destination={destino_lat},{destino_lng}&destination_place_id={nombre_codificado}&travelmode=driving",
+                'waze': f"https://www.waze.com/ul?ll={destino_lat},{destino_lng}&navigate=yes&to={nombre_codificado}"
+            }
+            
+            # Calcular distancia para mostrar información
+            distancia = calcular_distancia_km(origen_lat, origen_lng, destino_lat, destino_lng)
+            opciones['informacion'] = {
+                'distancia_km': round(distancia, 2),
+                'tiempo_estimado': estimar_tiempo_viaje(distancia)
+            }
+        
+        return jsonify({
+            'status': 'success',
+            'destino': {
+                'lat': destino_lat,
+                'lng': destino_lng,
+                'nombre': destino_nombre
+            },
+            'opciones': opciones
+        })
+        
+    except Exception as e:
+        logging.error(f"Error generando opciones de navegación: {e}")
+        return jsonify({'status': 'error', 'message': str(e)}), 500
+
 # ==============================================================================
-# 19. PUNTO DE ENTRADA
+# FUNCIONES AUXILIARES ADICIONALES
+# ==============================================================================
+
+def calcular_puntos_intermedios(lat1, lng1, lat2, lng2, num_puntos=10):
+    """Calcula puntos intermedios entre dos coordenadas."""
+    puntos = []
+    
+    for i in range(num_puntos + 1):
+        factor = i / num_puntos
+        lat = lat1 + (lat2 - lat1) * factor
+        lng = lng1 + (lng2 - lng1) * factor
+        puntos.append([lat, lng])
+    
+    return puntos
+
+def normalizar_texto_para_busqueda(texto):
+    """Normaliza texto para búsqueda (sin acentos, minúsculas)."""
+    if not isinstance(texto, str):
+        return ""
+    
+    # Convertir a minúsculas y quitar acentos
+    texto = texto.lower()
+    texto = unidecode(texto)
+    
+    # Eliminar caracteres especiales
+    texto = ''.join(c for c in texto if c.isalnum() or c.isspace())
+    
+    return texto.strip()
+
+# ==============================================================================
+# 20. ENDPOINT PARA ESTADO DEL CACHE (NUEVO)
+# ==============================================================================
+@app.route('/api/cache/status')
+def get_cache_status():
+    """Devuelve información del estado del cache."""
+    try:
+        df = dataframe_cache.get_dataframe()
+        
+        return jsonify({
+            'status': 'success',
+            'cache_info': {
+                'dataframe_en_memoria': not df.empty,
+                'total_registros': len(df),
+                'columnas_disponibles': list(df.columns) if not df.empty else [],
+                'ultimo_mes_registros': len(dataframe_cache.get_ultimo_mes()) if not df.empty else 0,
+                'estados_cacheados': len(dataframe_cache.get_estados_cache()) if not df.empty else 0,
+                'zonas_cacheadas': len(dataframe_cache._zonas_cache),
+                'timestamp': dataframe_cache._cache_timestamp.isoformat() if dataframe_cache._cache_timestamp else None
+            },
+            'archivos': {
+                'parquet_existe': os.path.exists(Config.PARQUET_PATH),
+                'excel_existe': os.path.exists(Config.EXCEL_PATH),
+                'coordenadas_existe': os.path.exists(Config.ARCHIVO_COORDENADAS)
+            }
+        })
+        
+    except Exception as e:
+        logging.error(f"Error obteniendo estado del cache: {e}")
+        return jsonify({'status': 'error', 'message': str(e)}), 500
+
+# ==============================================================================
+#  OPTIMIZACIONES ADICIONALES: PRE-CÁLCULO EN BACKGROUND
+# ==============================================================================
+
+# Cache para estadísticas pre-calculadas
+STATS_CACHE = None
+COORDENADAS_CACHE = None
+
+def precalcular_datos():
+    """Pre-cálculo de datos pesados al iniciar el servidor."""
+    global STATS_CACHE, COORDENADAS_CACHE
+    
+    try:
+        logging.info("🔄 Iniciando pre-cálculo de datos pesados...")
+        
+        # Pre-cargar DataFrame
+        df = dataframe_cache.cargar_dataframe()
+        
+        if not df.empty:
+            # 1. Pre-calcular estadísticas
+            logging.info("📊 Pre-calculando estadísticas...")
+            STATS_CACHE = {
+                'total_plazas': int(df[Config.COLUMNA_CLAVE].nunique()),
+                'total_registros': len(df),
+                'total_estados': int(df[Config.COLUMNA_ESTADO].nunique()) if Config.COLUMNA_ESTADO in df.columns else 0,
+                'ultimo_mes_registros': len(dataframe_cache.get_ultimo_mes())
+            }
+            
+            # 2. Pre-calcular coordenadas para el mapa
+            logging.info("🗺️ Pre-calculando coordenadas para el mapa...")
+            mapeo = dataframe_cache.get_mapeo_columnas()
+            plazas_coordenadas = []
+            
+            for _, plaza in df.iterrows():
+                try:
+                    lat = obtener_valor_seguro(plaza, 'LATITUD', mapeo)
+                    lng = obtener_valor_seguro(plaza, 'LONGITUD', mapeo)
+                    
+                    if lat is not None and lng is not None:
+                        plazas_coordenadas.append({
+                            'clave': obtener_valor_seguro(plaza, 'CLAVE_PLAZA', mapeo, ''),
+                            'nombre': obtener_valor_seguro(plaza, 'NOMBRE_PC', mapeo, ''),
+                            'estado': obtener_valor_seguro(plaza, 'ESTADO', mapeo, ''),
+                            'municipio': obtener_valor_seguro(plaza, 'MUNICIPIO', mapeo, ''),
+                            'lat': round(float(lat), 6),
+                            'lng': round(float(lng), 6)
+                        })
+                except Exception:
+                    continue
+            
+            COORDENADAS_CACHE = plazas_coordenadas[:2000]  # Limitar a 2000 para el mapa
+            
+            logging.info(f"✅ Pre-cálculo completado: {len(COORDENADAS_CACHE)} coordenadas, {STATS_CACHE['total_plazas']} plazas")
+        else:
+            logging.warning("⚠️ No se pudo realizar pre-cálculo: DataFrame vacío")
+            
+    except Exception as e:
+        logging.error(f"❌ Error en pre-cálculo: {e}")
+# ==============================================================================
+# 21. INICIALIZACIÓN GLOBAL (SE EJECUTA SIEMPRE: LOCAL Y RENDER)
+# ==============================================================================
+
+# 1. Configurar Headers de Caché (Decorador global)
+@app.after_request
+def add_header(response):
+    """Configura headers de caché para endpoints pesados."""
+    # Cache por 1 hora para endpoints de mapas y estadísticas
+    if request.path.startswith('/api/mapa/') or request.path.startswith('/api/estadisticas'):
+        response.headers['Cache-Control'] = 'public, max-age=3600'
+        response.headers['ETag'] = 'v1'
+    return response
+
+# 2. Iniciar Precarga y Hilos
+# Esto asegura que los datos se carguen cuando Gunicorn importe la app
+logging.info("🚀 Iniciando secuencia de arranque...")
+
+# Iniciar hilo de precálculo en background
+import threading
+try:
+    precalc_thread = threading.Thread(target=precalcular_datos, daemon=True)
+    precalc_thread.start()
+    logging.info("✅ Hilo de precálculo iniciado")
+except Exception as e:
+    logging.error(f"❌ Error iniciando hilo: {e}")
+
+# 3. Cargar DataFrame en Memoria
+df_inicial = dataframe_cache.cargar_dataframe()
+
+if df_inicial.empty:
+    logging.critical("⚠️ ADVERTENCIA: La aplicación inició sin datos. Se intentará recargar en la primera petición.")
+else:
+    logging.info(f"✅ Aplicación lista con {len(df_inicial)} registros")
+
+# ==============================================================================
+# 21. PUNTO DE ENTRADA
 # ==============================================================================
 if __name__ == '__main__':
-    if df_plazas is None:
-        logging.critical("La aplicación no puede iniciar porque la carga del archivo Excel falló.")
+    # Precargar el DataFrame al iniciar
+    logging.info("🚀 Iniciando aplicación Flask...")
+    
+    #  Ejecutar pre-cálculo en background
+    import threading
+    precalc_thread = threading.Thread(target=precalcular_datos, daemon=True)
+    precalc_thread.start()
+    
+    df = dataframe_cache.cargar_dataframe()
+    
+    if df.empty:
+        logging.critical("❌ La aplicación no puede iniciar porque la carga del archivo falló.")
     else:
-        logging.info(f"✅ Aplicación Flask iniciada correctamente con {len(df_plazas)} registros")
+        logging.info(f"✅ Aplicación Flask iniciada correctamente con {len(df)} registros")
+        
+        #  Configurar headers de cache para endpoints estáticos
+        @app.after_request
+        def add_header(response):
+            # Cache por 1 hora para endpoints pesados
+            if request.path.startswith('/api/mapa/') or request.path.startswith('/api/estadisticas'):
+                response.headers['Cache-Control'] = 'public, max-age=3600'
+                response.headers['ETag'] = 'v1'
+            return response
+        
         app.run(host='0.0.0.0', port=5000, debug=True)

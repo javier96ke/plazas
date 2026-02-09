@@ -1177,10 +1177,18 @@ class SistemaComparativas {
         `;
     }
 
+
     renderizarDistribucion(metricasAvanzadas) {
         if (!this.datosComparativa || !metricasAvanzadas) return;
-        const distribucionP1 = this.calcularDistribucionCNPeriodo1(this.datosComparativa.data.comparacion.metricas_globales);
+        
+        // 1. Obtener los datos con seguridad (evita el error de undefined)
+        const comparacion = this.datosComparativa.data.comparacion || {};
+        const metricasGlobales = comparacion.metricas_globales || {}; 
+        
+        // 2. Ahora sí es seguro llamar a la función, porque metricasGlobales nunca será undefined
+        const distribucionP1 = this.calcularDistribucionCNPeriodo1(metricasGlobales);
         const distribucionP2 = metricasAvanzadas.distribucionCN;
+        
         this.actualizarDistribucionCN(distribucionP1, distribucionP2); 
     }
 

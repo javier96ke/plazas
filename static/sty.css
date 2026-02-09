@@ -6602,3 +6602,249 @@ body.dark-theme .excel-update-minimal.minimal:hover {
     width: 100%;
 }
 
+
+/* ========================================================================== */
+/* MEJORAS AISLADAS: SISTEMA COMPARATIVAS (Modo Oscuro & Mobile) */
+/* ========================================================================== */
+
+/* 1. CONFIGURACIÓN BASE PARA EL CONTENEDOR DE COMPARATIVAS */
+/* Aseguramos que las variables de color solo afecten dentro de este contenedor */
+[data-theme="dark"] .comparativas-container {
+    --comp-bg-main: #0f172a;       /* Slate 900 */
+    --comp-bg-card: #1e293b;       /* Slate 800 */
+    --comp-bg-input: #020617;      /* Slate 950 */
+    --comp-border: #334155;        /* Slate 700 */
+    --comp-text-main: #f1f5f9;     /* Slate 100 */
+    --comp-text-muted: #94a3b8;    /* Slate 400 */
+    --comp-accent: #3b82f6;        /* Blue 500 */
+    
+    /* Colores semánticos brillantes para fondo oscuro */
+    --comp-success: #4ade80;       /* Green 400 */
+    --comp-success-bg: rgba(74, 222, 128, 0.15);
+    --comp-danger: #f87171;        /* Red 400 */
+    --comp-danger-bg: rgba(248, 113, 113, 0.15);
+    --comp-warning: #fbbf24;       /* Amber 400 */
+    --comp-warning-bg: rgba(251, 191, 36, 0.15);
+}
+
+/* 2. APLICACIÓN DE ESTILOS EN MODO OSCURO */
+
+/* Textos y Fondos Generales */
+[data-theme="dark"] .comparativas-container,
+[data-theme="dark"] .comparativas-container h2,
+[data-theme="dark"] .comparativas-container h3,
+[data-theme="dark"] .comparativas-container h4 {
+    color: var(--comp-text-main);
+}
+
+[data-theme="dark"] .comparativas-container p,
+[data-theme="dark"] .comparativas-container label,
+[data-theme="dark"] .comparativas-container span {
+    color: var(--comp-text-muted);
+}
+
+/* Tarjetas y Contenedores (Selectores, Resultados, Resumen) */
+[data-theme="dark"] .comparativas-container .periodo-selector,
+[data-theme="dark"] .comparativas-container .comparativa-resultados,
+[data-theme="dark"] .comparativas-container .resumen-card,
+[data-theme="dark"] .comparativas-container .estado-comparativa-card,
+[data-theme="dark"] .comparativas-container .metrica-principal-card,
+[data-theme="dark"] .comparativas-container .comparativa-tabla-container,
+[data-theme="dark"] .comparativas-container .comparativa-estados-container {
+    background-color: var(--comp-bg-card);
+    border-color: var(--comp-border);
+    box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.3), 0 2px 4px -1px rgba(0, 0, 0, 0.15);
+}
+
+/* Inputs y Selects */
+[data-theme="dark"] .comparativas-container select,
+[data-theme="dark"] .comparativas-container input {
+    background-color: var(--comp-bg-input);
+    color: var(--comp-text-main);
+    border: 1px solid var(--comp-border);
+}
+
+[data-theme="dark"] .comparativas-container select:focus,
+[data-theme="dark"] .comparativas-container input:focus {
+    border-color: var(--comp-accent);
+    box-shadow: 0 0 0 2px rgba(59, 130, 246, 0.3);
+}
+
+/* Botones */
+[data-theme="dark"] .comparativas-container .comparar-btn {
+    background: linear-gradient(135deg, #2563eb, #1d4ed8);
+    color: white;
+    border: 1px solid #1e40af;
+}
+
+[data-theme="dark"] .comparativas-container .comparar-btn:disabled {
+    background: var(--comp-bg-card);
+    color: var(--comp-text-muted);
+    border-color: var(--comp-border);
+    opacity: 0.5;
+}
+
+/* 3. TABLAS EN MODO OSCURO (Aislando estilos) */
+[data-theme="dark"] .comparativas-container table th {
+    background-color: #0f172a !important; /* Fondo más oscuro para header */
+    color: var(--comp-text-main);
+    border-bottom: 1px solid var(--comp-border);
+}
+
+[data-theme="dark"] .comparativas-container table td {
+    background-color: var(--comp-bg-card);
+    color: var(--comp-text-muted);
+    border-bottom: 1px solid var(--comp-border);
+}
+
+[data-theme="dark"] .comparativas-container table tr:hover td {
+    background-color: #2a3855; /* Hover sutil */
+    color: white;
+}
+
+/* Sticky Column Fix para Modo Oscuro */
+[data-theme="dark"] .comparativas-container #tabla-estados-comparativa tbody td:first-child {
+    background-color: var(--comp-bg-card);
+    color: var(--comp-text-main);
+    border-right: 1px solid var(--comp-border);
+}
+
+/* 4. MÉTRICAS Y BADGES (Colores brillantes para fondo oscuro) */
+
+/* Valores destacados en tarjetas */
+[data-theme="dark"] .comparativas-container .resumen-valor,
+[data-theme="dark"] .comparativas-container .metrica-valor,
+[data-theme="dark"] .comparativas-container .stat-number {
+    color: white;
+    text-shadow: 0 0 10px rgba(255,255,255,0.1);
+}
+
+/* Indicadores de tendencia (Positivo/Negativo) */
+[data-theme="dark"] .comparativas-container .cambio-positivo,
+[data-theme="dark"] .comparativas-container .tendencia-positiva,
+[data-theme="dark"] .comparativas-container .valor-positivo {
+    color: var(--comp-success) !important;
+}
+
+[data-theme="dark"] .comparativas-container .cambio-negativo,
+[data-theme="dark"] .comparativas-container .tendencia-negativa,
+[data-theme="dark"] .comparativas-container .valor-negativo {
+    color: var(--comp-danger) !important;
+}
+
+[data-theme="dark"] .comparativas-container .cambio-neutral,
+[data-theme="dark"] .comparativas-container .tendencia-neutral {
+    color: var(--comp-text-muted) !important;
+}
+
+/* Badges con fondo */
+[data-theme="dark"] .comparativas-container .porcentaje-cambio.positivo,
+[data-theme="dark"] .comparativas-container .estado-indicador.positivo {
+    background-color: var(--comp-success-bg);
+    color: var(--comp-success);
+    border: 1px solid rgba(74, 222, 128, 0.2);
+}
+
+[data-theme="dark"] .comparativas-container .porcentaje-cambio.negativo,
+[data-theme="dark"] .comparativas-container .estado-indicador.negativo {
+    background-color: var(--comp-danger-bg);
+    color: var(--comp-danger);
+    border: 1px solid rgba(248, 113, 113, 0.2);
+}
+
+/* 5. RESPONSIVIDAD MEJORADA (Mobile & Tablet) */
+
+@media (max-width: 768px) {
+    /* Ajustes generales del contenedor */
+    .comparativas-container {
+        padding: 0.5rem;
+        width: 100%;
+    }
+
+    /* Selector de periodos en columna */
+    .comparativas-container .selector-grid {
+        grid-template-columns: 1fr !important;
+        gap: 1rem;
+    }
+
+    /* Tarjetas de Resumen apiladas */
+    .comparativas-container .resumen-cards {
+        grid-template-columns: 1fr !important;
+        gap: 1rem;
+    }
+
+    .comparativas-container .resumen-card {
+        padding: 1rem;
+        flex-direction: row; /* Mantener icono al lado */
+        align-items: center;
+        text-align: left;
+    }
+
+    /* Grilla de Métricas Principales */
+    .comparativas-container .comparativa-metricas-principales {
+        grid-template-columns: 1fr 1fr; /* 2 columnas en móviles pequeños para ahorrar espacio */
+        gap: 0.8rem;
+    }
+    
+    @media (max-width: 480px) {
+        .comparativas-container .comparativa-metricas-principales {
+            grid-template-columns: 1fr; /* 1 columna en móviles muy pequeños */
+        }
+    }
+
+    /* Ajustes de Tablas para scroll horizontal suave */
+    .comparativas-container .table-responsive {
+        border-radius: 8px;
+        box-shadow: inset -10px 0 10px -10px rgba(0,0,0,0.1); /* Sombra indicando scroll */
+    }
+
+    /* Reducción de fuentes en tablas móviles */
+    .comparativas-container table th,
+    .comparativas-container table td {
+        padding: 0.75rem 0.5rem;
+        font-size: 0.85rem;
+        white-space: nowrap; /* Evita que el texto se rompa feo */
+    }
+
+    /* Modal de Estado en Móvil */
+    .modal-estado {
+        width: 95%;
+        margin: 0 auto;
+        max-height: 90vh;
+    }
+
+    .resumen-cards-mini {
+        grid-template-columns: 1fr; /* Apilar tarjetas mini */
+    }
+
+    /* Filtros de búsqueda de estados en columna */
+    .comparativas-container .estados-controls {
+        flex-direction: column;
+        align-items: stretch;
+        gap: 10px;
+    }
+    
+    .comparativas-container .search-estados,
+    .comparativas-container .search-input {
+        max-width: 100%;
+        width: 100%;
+    }
+}
+
+/* 6. CORRECCIONES VISUALES ESPECÍFICAS */
+
+/* Iconos en modo oscuro */
+[data-theme="dark"] .comparativas-container .resumen-icon {
+    background-color: rgba(255, 255, 255, 0.05);
+    color: var(--comp-text-main);
+}
+
+/* Scrollbar personalizado para las tablas dentro de comparativas (Modo Oscuro) */
+[data-theme="dark"] .comparativas-container .table-responsive::-webkit-scrollbar-track {
+    background: var(--comp-bg-main);
+}
+
+[data-theme="dark"] .comparativas-container .table-responsive::-webkit-scrollbar-thumb {
+    background-color: var(--comp-border);
+    border-radius: 4px;
+}

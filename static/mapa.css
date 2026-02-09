@@ -1,0 +1,1185 @@
+/* ========================================================= */
+/* 1. VARIABLES GLOBALES (Fácil configuración) */
+/* ========================================================= */
+:root {
+    /* Paleta de Colores */
+    --primary-color: #007bff;
+    --success-color: #28a745;
+    --warning-color: #ffc107;
+    --danger-color: #dc3545;
+    --dark-color: #343a40;
+    --light-color: #f8f9fa;
+    --waze-color: #33ccff;
+    --gmaps-color: #34a853;
+    
+    /* Capas Z-Index (Para evitar conflictos) */
+    --z-map: 1;
+    --z-map-controls: 1000;
+    --z-search-results: 1001;
+    --z-modal-overlay: 9999;
+    --z-modal-top: 10000;
+}
+
+/* ========================================================= */
+/* 2. ESTILOS AISLADOS DEL MAPA (Solo afectan dentro de #map-view) */
+/* ========================================================= */
+
+/* El contenedor del mapa */
+#map-view {
+    position: relative; /* Contexto de apilamiento */
+}
+
+/* El mapa base Leaflet */
+#map-view #map { 
+    height: 80vh; 
+    width: 100%; 
+    min-height: 500px; 
+    background-color: #e5e5e5; 
+    border-radius: 12px; /* Bordes más suaves */
+    position: relative;
+    z-index: var(--z-map);
+    box-shadow: 0 4px 6px rgba(0,0,0,0.1); /* Sombra sutil */
+    overflow: hidden; /* Para respetar el border-radius */
+}
+
+/* Contenedor de Búsqueda (Dentro del mapa) */
+#map-view .search-container {
+    background: rgba(255, 255, 255, 0.95);
+    padding: 10px;
+    border-radius: 8px;
+    box-shadow: 0 4px 15px rgba(0,0,0,0.15);
+    width: 280px;
+    z-index: var(--z-map-controls);
+    position: relative; 
+    margin-right: 10px;
+    backdrop-filter: blur(5px); /* Efecto cristal */
+}
+
+/* Input de búsqueda */
+#map-view .search-container .search-input {
+    width: 100%;
+    padding: 10px 12px;
+    margin-bottom: 0;
+    border: 1px solid #ddd;
+    border-radius: 6px;
+    font-size: 14px;
+    box-sizing: border-box;
+    display: block;
+    transition: all 0.3s ease;
+}
+
+#map-view .search-container .search-input:focus {
+    outline: none;
+    border-color: var(--primary-color);
+    box-shadow: 0 0 0 3px rgba(0,123,255,0.15);
+}
+
+/* Lista de Resultados de búsqueda */
+#map-view .search-results {
+    position: absolute;
+    top: calc(100% + 5px);
+    left: 0;
+    right: 0;
+    background: white;
+    border-radius: 6px;
+    box-shadow: 0 4px 20px rgba(0,0,0,0.15);
+    z-index: var(--z-search-results);
+    max-height: 250px;
+    overflow-y: auto;
+    border: 1px solid #eee;
+}
+
+/* Scrollbar personalizado para los resultados */
+#map-view .search-results::-webkit-scrollbar { width: 6px; }
+#map-view .search-results::-webkit-scrollbar-track { background: #f1f1f1; }
+#map-view .search-results::-webkit-scrollbar-thumb { background: #ccc; border-radius: 3px; }
+#map-view .search-results::-webkit-scrollbar-thumb:hover { background: #aaa; }
+
+#map-view .search-result-item {
+    padding: 12px 15px;
+    border-bottom: 1px solid #f0f0f0;
+    cursor: pointer;
+    text-align: left;
+    color: #333;
+    font-size: 0.95rem;
+    transition: background 0.2s;
+}
+
+#map-view .search-result-item:last-child { border-bottom: none; }
+#map-view .search-result-item:hover { background-color: #f8f9fa; color: var(--primary-color); }
+#map-view .search-result-item strong { color: var(--primary-color); }
+
+/* ========================================================= */
+/* 3. BOTONES Y CONTROLES DEL MAPA (Leaflet Custom Controls) */
+/* ========================================================= */
+
+/* Botones dentro de los Popups */
+#map-view .btn-map-popup {
+    background-color: var(--primary-color); 
+    color: white; 
+    border: none;
+    padding: 8px 12px; 
+    border-radius: 4px; 
+    cursor: pointer;
+    font-size: 0.9rem; 
+    margin-top: 6px; 
+    width: 100%;
+    transition: all 0.2s;
+    font-weight: 500;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 6px;
+}
+
+#map-view .btn-map-popup:hover { opacity: 0.9; transform: translateY(-1px); }
+#map-view .btn-map-popup:active { transform: translateY(0); }
+
+#map-view .btn-map-popup-gps { background-color: var(--success-color); }
+#map-view .btn-map-popup-gmaps { background-color: var(--gmaps-color); }
+#map-view .btn-map-popup-waze { background-color: var(--waze-color); }
+#map-view .btn-map-popup-route { background-color: #ff6b00; }
+#map-view .btn-map-popup-details { background-color: #6c757d; }
+
+/* Controles Flotantes Personalizados (GPS, Candado, Reset) */
+#map-view .leaflet-control-gps,
+#map-view .leaflet-control-gps-live,
+#map-view .leaflet-control-lock,
+#reset-map-button {
+    background: white;
+    padding: 8px 12px;
+    border-radius: 4px;
+    box-shadow: 0 1px 5px rgba(0,0,0,0.4);
+    cursor: pointer;
+    font-weight: bold;
+    color: #333;
+    display: flex; 
+    align-items: center; 
+    gap: 8px;
+    transition: all 0.2s;
+    border: 2px solid transparent; /* Para evitar saltos al añadir borde */
+}
+
+#map-view .leaflet-control-gps:hover,
+#map-view .leaflet-control-gps-live:hover,
+#map-view .leaflet-control-lock:hover,
+#reset-map-button:hover { 
+    background: #f8f9fa;
+    transform: scale(1.02);
+}
+
+/* Estilo activo para el candado o GPS */
+#map-view .control-active {
+    border-color: var(--primary-color) !important;
+    background-color: #e7f1ff !important;
+    color: var(--primary-color) !important;
+}
+
+/* ========================================================= */
+/* 4. MODALES Y OVERLAYS (Fuera del mapa) */
+/* ========================================================= */
+
+/* Fondo oscuro común para modales */
+.gps-confirm-overlay,
+.maps-choice-overlay { 
+    position: fixed; 
+    top: 0; left: 0; right: 0; bottom: 0;
+    background: rgba(0, 0, 0, 0.6);
+    backdrop-filter: blur(3px); /* Efecto borroso de fondo */
+    z-index: var(--z-modal-overlay);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    animation: fadeIn 0.3s ease-out;
+}
+
+/* Modal de selección de Mapas (Waze vs Google) */
+.maps-choice-modal {
+    background: white;
+    padding: 25px;
+    border-radius: 12px;
+    box-shadow: 0 10px 40px rgba(0,0,0,0.3);
+    text-align: center;
+    min-width: 300px;
+    z-index: var(--z-modal-top);
+}
+
+.maps-choice-buttons {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 15px;
+    margin-top: 20px;
+}
+
+.maps-choice-btn {
+    padding: 15px;
+    border: none;
+    border-radius: 8px;
+    cursor: pointer;
+    font-weight: bold;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 8px;
+    transition: transform 0.2s;
+    font-size: 1rem;
+}
+
+.maps-choice-btn:hover { transform: translateY(-3px); box-shadow: 0 5px 15px rgba(0,0,0,0.1); }
+.maps-choice-gmaps { background: var(--gmaps-color); color: white; }
+.maps-choice-waze { background: var(--waze-color); color: white; }
+
+/* Modal de Confirmación GPS */
+.gps-confirm-modal {
+    background: white;
+    padding: 30px;
+    border-radius: 12px;
+    box-shadow: 0 10px 40px rgba(0,0,0,0.3);
+    min-width: 320px;
+    max-width: 90%;
+    text-align: center;
+}
+
+.gps-confirm-buttons {
+    display: flex;
+    gap: 15px;
+    justify-content: center;
+    margin-top: 25px;
+}
+
+.gps-confirm-btn {
+    padding: 10px 25px;
+    border: none;
+    border-radius: 6px;
+    cursor: pointer;
+    font-weight: 600;
+    font-size: 1rem;
+}
+
+.gps-confirm-yes { background-color: var(--success-color); color: white; }
+.gps-confirm-no { background-color: var(--light-color); color: #333; border: 1px solid #ddd; }
+
+/* Modal de Resultados GPS (Panel lateral dentro del mapa) */
+#gps-results-modal {
+    position: absolute;
+    top: 10px; 
+    right: 10px;
+    width: 320px;
+    max-height: calc(100% - 20px);
+    overflow-y: auto;
+    background: white;
+    z-index: 2000; /* Debe estar sobre el mapa */
+    padding: 20px;
+    border-radius: 8px;
+    box-shadow: -2px 0 15px rgba(0,0,0,0.1);
+    display: none; /* JS lo muestra */
+    animation: slideInRight 0.3s ease-out;
+}
+
+.gps-item {
+    border-bottom: 1px solid #f0f0f0;
+    padding: 15px 0;
+}
+.gps-item:last-child { border-bottom: none; }
+.gps-dist { color: var(--success-color); font-weight: bold; font-size: 0.9em; display: block; margin-bottom: 5px; }
+
+.btn-close-gps {
+    position: absolute;
+    top: 10px;
+    right: 15px;
+    cursor: pointer; 
+    font-size: 1.8em; 
+    color: #999;
+    background: none; border: none;
+    line-height: 1;
+}
+.btn-close-gps:hover { color: #333; }
+
+/* Grids de botones en resultados */
+.gps-buttons-grid, .route-buttons-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 8px;
+    margin-top: 10px;
+}
+
+/* ========================================================= */
+/* 5. ANIMACIONES Y EXTRAS */
+/* ========================================================= */
+@keyframes pulse {
+    0% { box-shadow: 0 0 0 0 rgba(0, 123, 255, 0.7); }
+    70% { box-shadow: 0 0 0 15px rgba(0, 123, 255, 0); }
+    100% { box-shadow: 0 0 0 0 rgba(0, 123, 255, 0); }
+}
+
+@keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
+@keyframes slideUp { from { transform: translateY(100%); } to { transform: translateY(0); } }
+@keyframes slideInRight { from { transform: translateX(100%); opacity: 0; } to { transform: translateX(0); opacity: 1; } }
+
+/* Clusters (Agrupaciones en el mapa) */
+.marker-cluster-small { background-color: rgba(181, 226, 140, 0.6); }
+.marker-cluster-medium { background-color: rgba(241, 211, 87, 0.6); }
+.marker-cluster-large { background-color: rgba(253, 156, 115, 0.6); }
+
+.marker-cluster-small div, 
+.marker-cluster-medium div, 
+.marker-cluster-large div {
+    width: 30px;
+    height: 30px;
+    margin-left: 5px;
+    margin-top: 5px;
+    text-align: center;
+    border-radius: 50%;
+    font: 12px "Helvetica Neue", Arial, Helvetica, sans-serif;
+    color: #333;
+    font-weight: bold;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background-color: rgba(255,255,255,0.85);
+    box-shadow: 0 2px 5px rgba(0,0,0,0.2);
+}
+
+/* Personalización de Popups de Leaflet */
+.leaflet-popup-content-wrapper {
+    border-radius: 8px;
+    box-shadow: 0 3px 14px rgba(0,0,0,0.4);
+}
+.leaflet-popup-content {
+    margin: 15px;
+    line-height: 1.5;
+}
+
+/* ========================================================= */
+/* 6. RESPONSIVE (MÓVILES) - UNIFICADO Y OPTIMIZADO */
+/* ========================================================= */
+@media (max-width: 768px) {
+    
+    /* A. Panel de Resultados GPS: Se convierte en panel inferior deslizable */
+    #gps-results-modal {
+        top: auto !important;
+        bottom: 0;
+        left: 0;
+        right: 0;
+        width: 100% !important;
+        max-height: 60vh;
+        border-radius: 20px 20px 0 0 !important;
+        box-shadow: 0 -5px 20px rgba(0,0,0,0.2);
+        animation: slideUp 0.3s ease-out;
+    }
+
+    /* B. Controles del Mapa: Iconos compactos (sin texto) */
+    #map-view .leaflet-control-gps span:nth-child(2),
+    #map-view .leaflet-control-gps-live span:nth-child(2),
+    #map-view .leaflet-control-lock span:nth-child(2),
+    #reset-map-button span:nth-child(2) {
+        display: none !important;
+    }
+
+    #map-view .leaflet-control-gps,
+    #map-view .leaflet-control-gps-live,
+    #map-view .leaflet-control-lock,
+    #reset-map-button {
+        width: 44px !important;       /* Tamaño touch-friendly mínimo */
+        height: 44px !important;
+        padding: 0 !important;
+        justify-content: center;
+        display: flex;
+        align-items: center;
+    }
+
+    /* Emoji más grande para compensar falta de texto */
+    #map-view .leaflet-control-gps span:first-child,
+    #map-view .leaflet-control-gps-live span:first-child,
+    #map-view .leaflet-control-lock span:first-child,
+    #reset-map-button span:first-child {
+        font-size: 1.5rem !important;
+        margin: 0 !important;
+    }
+
+    /* C. Buscador compacto */
+    #map-view .search-container {
+        width: auto !important;
+        max-width: 180px !important; /* Un poco más ancho pero limitado */
+        padding: 5px !important;
+        margin-right: 50px !important; /* Espacio para controles de zoom */
+    }
+
+    #map-view .search-container .search-input {
+        font-size: 13px;
+        padding: 6px 8px;
+    }
+
+    /* D. Ajuste de Modales */
+    .maps-choice-modal, .gps-confirm-modal {
+        width: 90% !important;
+        padding: 20px;
+    }
+    
+    /* E. Ajuste de altura del mapa para móviles (evitar scroll infinito) */
+    #map-view #map {
+        height: 85vh; /* Aprovechar más pantalla */
+    }
+}
+/* ========================================================= */
+/* 7. CLASES NUEVAS PARA EL JS LIMPIO */
+/* ========================================================= */
+
+/* Estilos para popups */
+.popup-container {
+    font-family: Arial, sans-serif;
+    background: white;
+}
+
+.popup-header {
+    padding: 12px 15px 8px;
+    background: linear-gradient(135deg, #007bff, #0056b3);
+    color: white;
+}
+
+.popup-header h4 {
+    margin: 0;
+    font-size: 16px;
+    font-weight: bold;
+}
+
+.popup-subtitle {
+    font-size: 12px;
+    opacity: 0.9;
+    margin-top: 3px;
+}
+
+.popup-content {
+    padding: 15px;
+}
+
+.popup-nombre {
+    margin: 0 0 10px 0;
+    font-size: 14px;
+    line-height: 1.4;
+}
+
+.popup-situacion {
+    margin: 0 0 15px 0;
+    color: #666;
+    font-size: 12px;
+}
+
+.popup-actions {
+    display: grid;
+    gap: 8px;
+}
+
+.popup-icon {
+    font-size: 16px;
+}
+
+.popup-text {
+    flex: 1;
+}
+
+.popup-buttons-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 8px;
+    margin-top: 5px;
+}
+
+/* Versión móvil */
+.popup-container.mobile .popup-header {
+    padding: 10px;
+}
+
+.popup-container.mobile .popup-nombre-mobile {
+    margin: 5px 0;
+    font-size: 13px;
+}
+
+.popup-container.mobile .popup-location {
+    margin: 0;
+    font-size: 12px;
+    color: rgba(255,255,255,0.8);
+}
+
+.popup-container.mobile .popup-content {
+    padding: 10px;
+}
+
+/* Botones de popup específicos */
+.btn-map-popup-zoom {
+    background: #007bff !important;
+}
+
+.btn-map-popup-gmaps {
+    background: #34a853 !important;
+}
+
+.btn-map-popup-route {
+    background: #ff6b00 !important;
+}
+
+/* Estilos para búsqueda */
+.search-result-item {
+    padding: 10px;
+    border-bottom: 1px solid #eee;
+    cursor: pointer;
+    transition: background-color 0.2s;
+    display: flex;
+    align-items: flex-start;
+    gap: 10px;
+}
+
+.search-result-icon {
+    font-size: 18px;
+    margin-top: 2px;
+}
+
+.search-result-content {
+    flex: 1;
+}
+
+.search-result-clave {
+    font-size: 14px;
+    margin-bottom: 2px;
+}
+
+.search-result-nombre {
+    font-size: 13px;
+    color: #666;
+    margin-bottom: 2px;
+}
+
+.search-result-ubicacion {
+    font-size: 12px;
+    color: #888;
+}
+
+.search-no-results {
+    padding: 15px;
+    color: #666;
+    text-align: center;
+}
+
+.search-no-results-icon {
+    font-size: 1.5em;
+    margin-bottom: 10px;
+}
+
+/* Estilos para resultados GPS */
+.gps-item-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 5px;
+}
+
+.gps-item-clave {
+    font-size: 14px;
+}
+
+.gps-item-nombre {
+    font-size: 13px;
+    color: #666;
+    margin-bottom: 10px;
+}
+
+.gps-loading {
+    text-align: center;
+    padding: 20px;
+}
+
+.gps-error {
+    color: red;
+    padding: 15px;
+}
+
+.gps-title {
+    margin-top: 0;
+    color: #333;
+    margin-bottom: 10px;
+}
+
+.gps-location-info {
+    background: #e7f3ff;
+    padding: 10px;
+    border-radius: 5px;
+    margin-bottom: 10px;
+}
+
+.gps-accuracy {
+    display: block;
+    color: #666;
+    margin-top: 2px;
+}
+
+.gps-no-results {
+    color: #666;
+    text-align: center;
+}
+
+/* Notificaciones */
+.notification {
+    position: fixed;
+    bottom: 20px;
+    left: 20px;
+    background: #28a745;
+    color: white;
+    border-radius: 8px;
+    padding: 15px;
+    z-index: 10000;
+    max-width: 300px;
+    box-shadow: 0 4px 12px rgba(0,0,0,0.15);
+    animation: slideUp 0.3s ease-out;
+    display: flex;
+    align-items: center;
+    gap: 10px;
+}
+
+.notification-error {
+    background: #dc3545;
+}
+
+.notification-warning {
+    background: #ffc107;
+}
+
+.notification-icon {
+    font-size: 1.5em;
+}
+
+.notification-text {
+    flex: 1;
+}
+
+.notification-close {
+    margin-left: auto;
+    background: none;
+    border: none;
+    font-size: 1.2em;
+    cursor: pointer;
+    color: white;
+}
+
+/* Notificación de ruta */
+.route-notification {
+    position: fixed;
+    bottom: 20px;
+    right: 20px;
+    background: #fff3cd;
+    border: 1px solid #ffc107;
+    border-radius: 8px;
+    padding: 15px;
+    z-index: 10000;
+    max-width: 300px;
+    box-shadow: 0 4px 12px rgba(0,0,0,0.15);
+    animation: slideUp 0.3s ease-out;
+}
+
+.route-notification-content {
+    display: flex;
+    align-items: start;
+    gap: 10px;
+}
+
+.route-notification-icon {
+    font-size: 1.5em;
+}
+
+.route-notification-text {
+    flex: 1;
+}
+
+.route-notification-close {
+    position: absolute;
+    top: 5px;
+    right: 5px;
+    background: none;
+    border: none;
+    font-size: 1.2em;
+    cursor: pointer;
+    color: #666;
+}
+
+/* Modal de mapas */
+.maps-choice-icon {
+    font-size: 1.5em;
+}
+
+.maps-choice-text {
+    margin-top: 5px;
+}
+
+.maps-choice-cancel {
+    margin-top: 15px;
+    padding: 8px 15px;
+    background: #6c757d;
+    color: white;
+    border: none;
+    border-radius: 4px;
+    cursor: pointer;
+    width: 100%;
+}
+
+/* Popup de ubicación de usuario */
+.user-location-popup {
+    text-align: center;
+}
+
+/* Punto de ubicación de usuario */
+.user-location-pulse {
+    background: #007bff;
+    width: 20px;
+    height: 20px;
+    border-radius: 50%;
+    border: 3px solid white;
+    box-shadow: 0 0 10px rgba(0,0,0,0.5);
+    animation: pulse 1.5s infinite;
+}
+
+.user-location-dot {
+    background: #007bff;
+    width: 16px;
+    height: 16px;
+    border-radius: 50%;
+    border: 3px solid white;
+    box-shadow: 0 0 5px rgba(0,0,0,0.5);
+}
+
+/* Punto de marcador de plaza */
+.plaza-marker-dot {
+    background: #dc3545;
+    width: 12px;
+    height: 12px;
+    border-radius: 50%;
+    border: 2px solid white;
+    box-shadow: 0 0 8px rgba(0,0,0,0.5);
+    cursor: pointer;
+}
+
+/* Hint para candado */
+.lock-hint {
+    position: absolute;
+    top: 10px;
+    left: 50%;
+    transform: translateX(-50%);
+    background: rgba(0,0,0,0.8);
+    color: white;
+    padding: 8px 15px;
+    border-radius: 20px;
+    font-size: 0.9em;
+    z-index: 1000;
+    animation: fadeInOut 3s forwards;
+}
+
+/* Select de filtro */
+.filtro-estado-select {
+    padding: 6px 10px;
+    border-radius: 4px;
+    border: 1px solid #ddd;
+    box-shadow: 0 1px 3px rgba(0,0,0,0.1);
+    font-size: 14px;
+    min-width: 150px;
+}
+
+/* Animación fadeInOut */
+@keyframes fadeInOut {
+    0%, 100% { opacity: 0; }
+    10%, 90% { opacity: 1; }
+}
+/* ========================================= */
+/* ESTILOS NUEVOS PARA PIN MODERNO           */
+/* ========================================= */
+
+/* Contenedor transparente para evitar bordes cuadrados de Leaflet */
+.custom-pin-container {
+    background: transparent;
+    border: none;
+}
+
+/* El cuerpo del Pin (forma de gota invertida) */
+.modern-pin {
+    width: 40px;
+    height: 40px;
+    background: #dc3545; /* Color Rojo */
+    border-radius: 50% 50% 50% 0; /* Forma de gota */
+    transform: rotate(-45deg); /* Rotamos para que la punta apunte abajo */
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    border: 3px solid white;
+    box-shadow: 0 4px 10px rgba(0,0,0,0.3);
+    position: relative;
+    z-index: 2;
+    transition: transform 0.2s ease;
+}
+
+/* El icono dentro del Pin */
+.modern-pin .pin-icon {
+    transform: rotate(45deg); /* Contrarrotamos el icono para que se vea recto */
+    font-size: 20px;
+    line-height: 1;
+}
+
+/* Efecto Hover: Se hace más grande al pasar el mouse */
+.custom-pin-container:hover .modern-pin {
+    transform: rotate(-45deg) scale(1.1);
+    background: #c82333; /* Rojo más oscuro */
+    cursor: pointer;
+}
+
+/* Sombra ovalada en el suelo */
+.pin-shadow {
+    width: 20px;
+    height: 6px;
+    background: rgba(0,0,0,0.3);
+    border-radius: 50%;
+    position: absolute;
+    bottom: 0;
+    left: 10px;
+    z-index: 1;
+    filter: blur(2px);
+}
+/* ========================================================= */
+/* 📱 OPTIMIZACIÓN MÓVIL BLINDADA (No toca el footer) */
+/* ========================================================= */
+@media (max-width: 768px) {
+
+    /* Aseguramos que el contenedor sea la referencia para los botones */
+    #map-view {
+        position: relative !important;
+        /* Opcional: evita que el mapa sea más alto que la pantalla en móvil */
+        max-height: 85vh; 
+    }
+
+    /* 1. ELIMINAR INTERFERENCIAS DE LEAFLET (Solo dentro del mapa) */
+    #map-view .leaflet-top, 
+    #map-view .leaflet-bottom {
+        z-index: 900;
+        pointer-events: none; /* Permite tocar el mapa a través de los huecos */
+    }
+    
+    #map-view .leaflet-control {
+        pointer-events: auto; /* Reactivar clic en los controles */
+    }
+
+    /* 2. BARRA DE BÚSQUEDA: FLOTANTE ARRIBA (Absoluta al mapa) */
+    #map-view .search-container {
+        position: absolute !important; /* CAMBIO: Absolute en vez de Fixed */
+        top: 15px !important;
+        left: 5% !important;
+        width: 90% !important;
+        max-width: none !important;
+        margin: 0 !important;
+        padding: 0 !important;
+        background: white !important;
+        box-shadow: 0 2px 10px rgba(0,0,0,0.2) !important;
+        border-radius: 8px !important;
+        z-index: 1005 !important;
+        display: flex !important;
+        align-items: center;
+    }
+
+    #map-view #map-search-input {
+        border: none !important;
+        height: 45px !important;
+        font-size: 16px !important;
+        padding-left: 15px !important;
+        border-radius: 8px !important;
+        width: 100% !important;
+    }
+
+    /* Lista de resultados */
+    #map-view .search-results {
+        top: 50px !important;
+        width: 100% !important;
+        border-radius: 8px !important;
+        box-shadow: 0 4px 15px rgba(0,0,0,0.2) !important;
+        max-height: 40vh !important;
+    }
+
+    /* 3. FILTRO DE ESTADOS: DEBAJO DE LA BÚSQUEDA */
+    #map-view .leaflet-bar:has(.filtro-estado-select),
+    #map-view .custom-filter-container {
+        position: absolute !important; /* CAMBIO: Absolute */
+        top: 70px !important;
+        left: 50% !important;
+        transform: translateX(-50%) !important;
+        margin: 0 !important;
+        z-index: 1000 !important;
+        border: none !important;
+        box-shadow: none !important;
+        background: transparent !important;
+    }
+
+    #map-view #filtro-estado {
+        background: rgba(255, 255, 255, 0.9) !important;
+        backdrop-filter: blur(4px);
+        border: 1px solid #ccc !important;
+        border-radius: 20px !important;
+        padding: 5px 15px !important;
+        font-size: 13px !important;
+        box-shadow: 0 2px 5px rgba(0,0,0,0.1) !important;
+        height: auto !important;
+    }
+
+    /* 4. BOTONES DE ACCIÓN: PILA VERTICAL (Posicionados Absolutos) */
+    
+    /* Clase común para posicionamiento */
+    #map-view .leaflet-control-gps, 
+    #map-view .leaflet-control-gps-live,
+    #map-view .leaflet-control-lock,
+    #map-view #reset-map-button {
+        position: absolute !important; /* CAMBIO: Absolute para no tapar footer */
+        right: 15px !important;
+        left: auto !important;
+        top: auto !important;
+        margin: 0 !important;
+        z-index: 1000 !important;
+        
+        width: 45px !important;
+        height: 45px !important;
+        border-radius: 50% !important;
+        box-shadow: 0 4px 10px rgba(0,0,0,0.3) !important;
+        border: none !important;
+        background-color: white !important;
+        
+        display: flex !important;
+        justify-content: center !important;
+        align-items: center !important;
+        padding: 0 !important;
+    }
+
+    /* Iconos grandes */
+    #map-view .leaflet-control-gps span, 
+    #map-view .leaflet-control-gps-live span,
+    #map-view .leaflet-control-lock span,
+    #map-view #reset-map-button span {
+        font-size: 22px !important;
+        margin: 0 !important;
+    }
+
+    /* POSICIONES (Desde abajo del MAPA, no de la pantalla) */
+    
+    #map-view .leaflet-control-gps-live {
+        bottom: 20px !important; /* Un poco más de margen */
+    }
+
+    #map-view .leaflet-control-gps {
+        bottom: 75px !important;
+    }
+
+    #map-view #reset-map-button {
+        bottom: 130px !important;
+    }
+
+    #map-view .leaflet-control-lock {
+        bottom: 185px !important;
+    }
+
+    /* 5. Ocultar cosas innecesarias */
+    #map-view .leaflet-control-zoom {
+        display: none !important;
+    }
+
+    #map-view .gps-text, 
+    #map-view .lock-text, 
+    #map-view .reset-text {
+        display: none !important;
+    }
+}
+/* ========================================================= */
+/* 📱 CORRECCIÓN DEFINITIVA: CONTROLES FIXED (IGNORAN LEAFLET) */
+/* ========================================================= */
+@media (max-width: 768px) {
+
+    /* 1. EL MAPA OCUPA TODA LA PANTALLA (Aislado) */
+    #map-view {
+        position: fixed !important;
+        top: 0; left: 0; right: 0; bottom: 0;
+        width: 100vw; height: 100vh;
+        z-index: 99999; /* Encima de todo el sitio web */
+        background: white;
+        display: flex !important;
+        flex-direction: column;
+    }
+
+    #map-view.hidden { display: none !important; z-index: -1; }
+
+    /* Header del Mapa (Título) */
+    #map-view h1 {
+        flex: 0 0 auto;
+        padding: 10px 15px;
+        margin: 0;
+        font-size: 16px;
+        z-index: 10002; /* Más alto que los botones */
+        background: white;
+        box-shadow: 0 2px 5px rgba(0,0,0,0.1);
+        position: relative;
+    }
+    
+    /* El contenedor del mapa llena el resto */
+    #map-container { flex: 1; position: relative; width: 100%; }
+    #map-view #map { width: 100% !important; height: 100% !important; }
+
+    /* ===================================================== */
+    /* 2. LIBERAR LOS BOTONES (ROMPE LA JAULA DE LEAFLET)    */
+    /* ===================================================== */
+
+    /* Hacemos transparentes los contenedores de Leaflet para poder tocar el mapa */
+    /* IMPORTANTE: No usamos display:none, sino pointer-events:none */
+    #map-view .leaflet-control-container,
+    #map-view .leaflet-top,
+    #map-view .leaflet-bottom,
+    #map-view .leaflet-left,
+    #map-view .leaflet-right {
+        position: absolute;
+        width: 100%; height: 100%;
+        pointer-events: none; /* Permite clicks a través de las cajas vacías */
+        z-index: 10000;
+        margin: 0 !important; padding: 0 !important;
+    }
+
+    /* Ocultamos controles estándar que no uses para limpiar la pantalla */
+    #map-view .leaflet-control-zoom, 
+    #map-view .leaflet-control-attribution {
+        display: none !important;
+    }
+
+    /* ===================================================== */
+    /* 3. POSICIONAMIENTO FORZADO DE TUS ELEMENTOS           */
+    /* ===================================================== */
+
+    /* Reactivamos clicks SOLO en tus elementos específicos */
+    #map-view .search-container,
+    #map-view .leaflet-control-gps,
+    #map-view .leaflet-control-gps-live,
+    #map-view .leaflet-control-lock,
+    #map-view #reset-map-button,
+    #map-view #filtro-estado {
+        pointer-events: auto !important;
+    }
+
+    /* --- A. BUSCADOR (FIXED ARRIBA) --- */
+    #map-view .search-container {
+        position: fixed !important; /* Fixed respecto a la pantalla del cel */
+        top: 75px !important;       /* Debajo del H1 (aprox 50px) */
+        left: 50% !important;
+        transform: translateX(-50%) !important;
+        width: 94% !important;
+        margin: 0 !important;
+        z-index: 10005 !important;
+        background: white;
+        border-radius: 8px;
+        box-shadow: 0 4px 15px rgba(0,0,0,0.15);
+        display: flex !important;
+    }
+    
+    #map-view #map-search-input {
+        height: 45px !important;
+        border: none !important;
+        font-size: 16px !important;
+    }
+
+    /* Resultados de búsqueda */
+    #map-view .search-results {
+        position: absolute; /* Absolute respecto al buscador */
+        top: 100% !important;
+        width: 100% !important;
+        max-height: 40vh;
+        z-index: 10006 !important;
+    }
+
+    /* --- B. FILTRO DE ESTADO (FIXED DEBAJO DEL BUSCADOR) --- */
+    /* Seleccionamos el contenedor padre que crea Leaflet o tu div custom */
+    #map-view .custom-filter-container,
+    #map-view .leaflet-bar:has(#filtro-estado) {
+        position: fixed !important;
+        top: 115px !important; /* 60px (top search) + 45px (height) + 10px gap */
+        left: 50% !important;
+        transform: translateX(-50%) !important;
+        margin: 0 !important;
+        z-index: 10004 !important;
+        background: transparent !important;
+        border: none !important;
+        box-shadow: none !important;
+    }
+
+    #map-view #filtro-estado {
+        background: rgba(255, 255, 255, 0.95) !important;
+        border-radius: 20px !important;
+        padding: 5px 15px !important;
+        box-shadow: 0 2px 8px rgba(0,0,0,0.2) !important;
+        border: 1px solid #ccc !important;
+        height: 35px !important;
+    }
+
+    /* --- C. BOTONES DE ACCIÓN (FIXED COLUMNA DERECHA) --- */
+    /* Aquí está la magia: position FIXED los saca de Leaflet */
+    #map-view .leaflet-control-gps-live,
+    #map-view .leaflet-control-gps,
+    #map-view #reset-map-button,
+    #map-view .leaflet-control-lock {
+        position: fixed !important;
+        right: 15px !important;
+        left: auto !important; 
+        top: auto !important;
+        
+        width: 50px !important;
+        height: 50px !important;
+        border-radius: 50% !important;
+        background: white !important;
+        box-shadow: 0 4px 10px rgba(0,0,0,0.3) !important;
+        border: none !important;
+        
+        display: flex !important;
+        justify-content: center !important;
+        align-items: center !important;
+        z-index: 10003 !important;
+        margin: 0 !important; /* Quitar márgenes de Leaflet */
+    }
+
+    /* PILA VERTICAL (Calculada desde abajo) */
+    
+    /* 1. LIVE TRACKING (Abajo del todo) */
+    #map-view .leaflet-control-gps-live { 
+        bottom: 30px !important; 
+    }
+    
+    /* 2. CERCANOS (Encima de Live) */
+    #map-view .leaflet-control-gps { 
+        bottom: 90px !important; 
+    }
+    
+    /* 3. RESET (Encima de Cercanos) */
+    #map-view #reset-map-button { 
+        bottom: 150px !important; 
+    }
+    
+    /* 4. CANDADO (Arriba del todo de la pila) */
+    #map-view .leaflet-control-lock { 
+        bottom: 210px !important; 
+    }
+
+    /* ESTILO DE ICONOS (Grandes y centrados) */
+    #map-view .leaflet-control-gps-live span:first-child,
+    #map-view .leaflet-control-gps span:first-child,
+    #map-view #reset-map-button span:first-child,
+    #map-view .leaflet-control-lock span:first-child {
+        font-size: 24px !important;
+        margin: 0 !important;
+        display: block !important;
+        line-height: 1 !important;
+    }
+
+    /* OCULTAR TEXTOS (Solo iconos en móvil para ahorrar espacio) */
+    #map-view .gps-text, 
+    #map-view .reset-text, 
+    #map-view .lock-text,
+    #map-view .leaflet-control-gps-live .gps-text,
+    #map-view .leaflet-control-gps-live span:nth-child(2),
+    #map-view .leaflet-control-gps span:nth-child(2),
+    #reset-map-button span:nth-child(2),
+    #map-view .leaflet-control-lock span:nth-child(2) {
+        display: none !important;
+    }
+}
