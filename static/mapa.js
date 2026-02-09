@@ -81,7 +81,7 @@ document.addEventListener("DOMContentLoaded", function() {
     }
 
     // =========================================================
-    // FUNCIONES PARA GENERAR HTML EN FRONTEND
+    // FUNCIONES PARA GENERAR HTML EN FRONTEND (CORREGIDA PARA MÓVILES)
     // =========================================================
     function generarPopupHTML(plaza) {
         const clave = plaza.Clave_Plaza || plaza.clave || 'Sin clave';
@@ -101,54 +101,60 @@ document.addEventListener("DOMContentLoaded", function() {
         
         const esMovil = window.innerWidth <= 768;
         
-        if (!esMovil) {
-            return `
-            <div class="popup-container">
-                <div class="popup-header">
-                    <h4>${claveHTML}</h4>
-                    <div class="popup-subtitle">
-                        <span>${estadoHTML}</span>
-                        ${municipioHTML ? `<span>, ${municipioHTML}</span>` : ''}
-                    </div>
+        // CORRECCIÓN CRÍTICA: Usar L.DomEvent.disableClickPropagation en el contenedor
+        const popupHTML = !esMovil ? `
+        <div class="popup-container">
+            <div class="popup-header">
+                <h4>${claveHTML}</h4>
+                <div class="popup-subtitle">
+                    <span>${estadoHTML}</span>
+                    ${municipioHTML ? `<span>, ${municipioHTML}</span>` : ''}
                 </div>
+            </div>
+            
+            <div class="popup-content">
+                <p class="popup-nombre"><strong>${nombreHTML}</strong></p>
+                ${situacionHTML ? `<p class="popup-situacion">${situacionHTML}</p>` : ''}
                 
-                <div class="popup-content">
-                    <p class="popup-nombre"><strong>${nombreHTML}</strong></p>
-                    ${situacionHTML ? `<p class="popup-situacion">${situacionHTML}</p>` : ''}
+                <div class="popup-actions">
+                    <!-- CORRECCIÓN: Botones tipo <a> con eventos táctiles -->
+                    <a href="javascript:void(0)" 
+                       onclick="window.navigationContext.cameFromMap = true; window.irADetallePlaza('${claveEscapada}')" 
+                       ontouchstart="window.navigationContext.cameFromMap = true; window.irADetallePlaza('${claveEscapada}')"
+                       class="btn-map-popup btn-map-popup-details">
+                        <span class="popup-icon">📋</span>
+                        <span class="popup-text">Ver Detalles</span>
+                    </a>
                     
-                    <div class="popup-actions">
-                        <button onclick="window.navigationContext.cameFromMap = true; window.irADetallePlaza('${claveEscapada}')" 
-                                class="btn-map-popup btn-map-popup-details">
-                            <span class="popup-icon">📋</span>
-                            <span class="popup-text">Ver Detalles</span>
-                        </button>
+                    <a href="javascript:void(0)" 
+                       onclick="window.zoomAPlaza(${lat}, ${lng}, '${claveEscapada}')" 
+                       ontouchstart="window.zoomAPlaza(${lat}, ${lng}, '${claveEscapada}')"
+                       class="btn-map-popup btn-map-popup-zoom">
+                        <span class="popup-icon">📍</span>
+                        <span class="popup-text">Centrar</span>
+                    </a>
+                    
+                    <div class="popup-buttons-grid">
+                        <a href="javascript:void(0)" 
+                           onclick="window.mostrarOpcionesNavegacion(${lat}, ${lng}, '${claveEscapada}', false)" 
+                           ontouchstart="window.mostrarOpcionesNavegacion(${lat}, ${lng}, '${claveEscapada}', false)"
+                           class="btn-map-popup btn-map-popup-gmaps">
+                            <span class="popup-icon">🗺️</span>
+                            <span class="popup-text">Maps</span>
+                        </a>
                         
-                        <button onclick="window.zoomAPlaza(${lat}, ${lng}, '${claveEscapada}')" 
-                                class="btn-map-popup btn-map-popup-zoom">
-                            <span class="popup-icon">📍</span>
-                            <span class="popup-text">Centrar</span>
-                        </button>
-                        
-                        <div class="popup-buttons-grid">
-                            <button onclick="window.mostrarOpcionesNavegacion(${lat}, ${lng}, '${claveEscapada}', false)" 
-                                    class="btn-map-popup btn-map-popup-gmaps">
-                                <span class="popup-icon">🗺️</span>
-                                <span class="popup-text">Maps</span>
-                            </button>
-                            
-                            <button onclick="window.solicitarUbicacionParaRuta(${lat}, ${lng}, '${claveEscapada}')" 
-                                    class="btn-map-popup btn-map-popup-route">
-                                <span class="popup-icon">🚗</span>
-                                <span class="popup-text">Ruta</span>
-                            </button>
-                        </div>
+                        <a href="javascript:void(0)" 
+                           onclick="window.solicitarUbicacionParaRuta(${lat}, ${lng}, '${claveEscapada}')" 
+                           ontouchstart="window.solicitarUbicacionParaRuta(${lat}, ${lng}, '${claveEscapada}')"
+                           class="btn-map-popup btn-map-popup-route">
+                            <span class="popup-icon">🚗</span>
+                            <span class="popup-text">Ruta</span>
+                        </a>
                     </div>
                 </div>
             </div>
-            `;
-        }
-        
-        return `
+        </div>
+        ` : `
         <div class="popup-container mobile">
             <div class="popup-header mobile">
                 <h4>${claveHTML}</h4>
@@ -157,25 +163,63 @@ document.addEventListener("DOMContentLoaded", function() {
             </div>
             
             <div class="popup-content mobile">
-                <button onclick="window.navigationContext.cameFromMap = true; window.irADetallePlaza('${claveEscapada}')" 
-                        class="btn-map-popup btn-map-popup-details mobile">
+                <!-- CORRECCIÓN: En móviles también usar <a> con eventos táctiles -->
+                <a href="javascript:void(0)" 
+                   onclick="window.navigationContext.cameFromMap = true; window.irADetallePlaza('${claveEscapada}')" 
+                   ontouchstart="window.navigationContext.cameFromMap = true; window.irADetallePlaza('${claveEscapada}')"
+                   class="btn-map-popup btn-map-popup-details mobile">
                     📋 Detalles
-                </button>
+                </a>
                 
                 <div class="popup-buttons-grid mobile">
-                    <button onclick="window.mostrarOpcionesNavegacion(${lat}, ${lng}, '${claveEscapada}', false)" 
-                            class="btn-map-popup btn-map-popup-gmaps mobile">
+                    <a href="javascript:void(0)" 
+                       onclick="window.mostrarOpcionesNavegacion(${lat}, ${lng}, '${claveEscapada}', false)" 
+                       ontouchstart="window.mostrarOpcionesNavegacion(${lat}, ${lng}, '${claveEscapada}', false)"
+                       class="btn-map-popup btn-map-popup-gmaps mobile">
                         🗺️ Maps
-                    </button>
+                    </a>
                     
-                    <button onclick="window.solicitarUbicacionParaRuta(${lat}, ${lng}, '${claveEscapada}')" 
-                            class="btn-map-popup btn-map-popup-route mobile">
+                    <a href="javascript:void(0)" 
+                       onclick="window.solicitarUbicacionParaRuta(${lat}, ${lng}, '${claveEscapada}')" 
+                       ontouchstart="window.solicitarUbicacionParaRuta(${lat}, ${lng}, '${claveEscapada}')"
+                       class="btn-map-popup btn-map-popup-route mobile">
                         🚗 Ruta
-                    </button>
+                    </a>
                 </div>
             </div>
         </div>
         `;
+        
+        return popupHTML;
+    }
+
+    // Función auxiliar para aplicar la corrección de propagación de eventos
+    function aplicarCorreccionEventosMoviles(popupElement) {
+        if (window.innerWidth <= 768 && popupElement && window.L) {
+            // Deshabilitar propagación de clics en el contenido del popup
+            const popupContent = popupElement.querySelector('.popup-content');
+            if (popupContent) {
+                L.DomEvent.disableClickPropagation(popupContent);
+            }
+            
+            // También deshabilitar en el contenedor principal
+            L.DomEvent.disableClickPropagation(popupElement);
+            
+            // Asegurar que los botones no propaguen eventos
+            const buttons = popupElement.querySelectorAll('.btn-map-popup');
+            buttons.forEach(button => {
+                L.DomEvent.disableClickPropagation(button);
+                
+                // Agregar clase táctil para feedback visual
+                button.addEventListener('touchstart', function() {
+                    this.classList.add('touch-active');
+                }, { passive: true });
+                
+                button.addEventListener('touchend', function() {
+                    this.classList.remove('touch-active');
+                }, { passive: true });
+            });
+        }
     }
 
     function generarResultadoBusquedaHTML(resultado) {
@@ -195,18 +239,23 @@ document.addEventListener("DOMContentLoaded", function() {
         const icono = resultado.tipo_coincidencia === 'exacta' ? '🎯' : '📍';
         const ubicacion = municipioHTML ? `${estadoHTML}, ${municipioHTML}` : estadoHTML;
         
+        // CORRECCIÓN: Usar <a> con eventos táctiles para resultados de búsqueda
         return `
-        <div onclick="window.zoomAPlaza(${lat}, ${lng}, '${claveEscapada}'); 
-                      document.getElementById('search-results').style.display='none';
-                      document.getElementById('map-search-input').value='${claveEscapada}';" 
-             class="search-result-item">
+        <a href="javascript:void(0)" 
+           onclick="window.zoomAPlaza(${lat}, ${lng}, '${claveEscapada}'); 
+                    document.getElementById('search-results').style.display='none';
+                    document.getElementById('map-search-input').value='${claveEscapada}';" 
+           ontouchstart="window.zoomAPlaza(${lat}, ${lng}, '${claveEscapada}'); 
+                        document.getElementById('search-results').style.display='none';
+                        document.getElementById('map-search-input').value='${claveEscapada}';"
+           class="search-result-item">
             <div class="search-result-icon">${icono}</div>
             <div class="search-result-content">
                 <div class="search-result-clave"><strong>${claveHTML}</strong></div>
                 <div class="search-result-nombre">${nombreHTML}</div>
                 <div class="search-result-ubicacion">${ubicacion}</div>
             </div>
-        </div>
+        </a>
         `;
     }
 
@@ -224,6 +273,7 @@ document.addEventListener("DOMContentLoaded", function() {
         const userLat = userLocation ? userLocation.lat : null;
         const userLng = userLocation ? userLocation.lon : null;
         
+        // CORRECCIÓN: Usar <a> con eventos táctiles para plazas cercanas
         return `
         <div class="gps-item">
             <div class="gps-item-header">
@@ -234,25 +284,33 @@ document.addEventListener("DOMContentLoaded", function() {
             <div class="gps-item-nombre">${nombreHTML}</div>
             
             <div class="gps-buttons-grid">
-                <button onclick="window.zoomAPlaza(${lat}, ${lng}, '${claveEscapada}')" 
-                        class="btn-map-popup btn-map-popup-zoom">
+                <a href="javascript:void(0)" 
+                   onclick="window.zoomAPlaza(${lat}, ${lng}, '${claveEscapada}')" 
+                   ontouchstart="window.zoomAPlaza(${lat}, ${lng}, '${claveEscapada}')"
+                   class="btn-map-popup btn-map-popup-zoom">
                     Ver en Mapa
-                </button>
-                <button onclick="window.navigationContext.cameFromMap = true; window.irADetallePlaza('${claveEscapada}')" 
-                        class="btn-map-popup btn-map-popup-details">
+                </a>
+                <a href="javascript:void(0)" 
+                   onclick="window.navigationContext.cameFromMap = true; window.irADetallePlaza('${claveEscapada}')" 
+                   ontouchstart="window.navigationContext.cameFromMap = true; window.irADetallePlaza('${claveEscapada}')"
+                   class="btn-map-popup btn-map-popup-details">
                     Detalles
-                </button>
+                </a>
             </div>
             
             <div class="route-buttons-grid">
-                <button onclick="window.mostrarOpcionesNavegacion(${lat}, ${lng}, '${claveEscapada}', false)" 
-                        class="btn-map-popup btn-map-popup-gmaps">
+                <a href="javascript:void(0)" 
+                   onclick="window.mostrarOpcionesNavegacion(${lat}, ${lng}, '${claveEscapada}', false)" 
+                   ontouchstart="window.mostrarOpcionesNavegacion(${lat}, ${lng}, '${claveEscapada}', false)"
+                   class="btn-map-popup btn-map-popup-gmaps">
                     🗺️ Ver en Maps
-                </button>
-                <button onclick="window.solicitarUbicacionParaRuta(${lat}, ${lng}, '${claveEscapada}', ${userLat}, ${userLng})" 
-                        class="btn-map-popup btn-map-popup-route">
+                </a>
+                <a href="javascript:void(0)" 
+                   onclick="window.solicitarUbicacionParaRuta(${lat}, ${lng}, '${claveEscapada}', ${userLat}, ${userLng})" 
+                   ontouchstart="window.solicitarUbicacionParaRuta(${lat}, ${lng}, '${claveEscapada}', ${userLat}, ${userLng})"
+                   class="btn-map-popup btn-map-popup-route">
                     🚗 Cómo Llegar
-                </button>
+                </a>
             </div>
         </div>
         `;
@@ -365,10 +423,20 @@ document.addEventListener("DOMContentLoaded", function() {
                 const container = L.DomUtil.create('div', 'leaflet-bar leaflet-control leaflet-control-gps');
                 container.innerHTML = '<span class="gps-icon">🧭</span> <span class="gps-text">Cercanas</span>';
                 container.style.cursor = 'pointer';
+                
+                // CORRECCIÓN: Agregar eventos táctiles al control
                 container.onclick = function(e) {
                     L.DomEvent.stopPropagation(e);
+                    L.DomEvent.preventDefault(e);
                     mostrarModalConfirmacionGPS();
                 };
+                
+                container.ontouchstart = function(e) {
+                    L.DomEvent.stopPropagation(e);
+                    L.DomEvent.preventDefault(e);
+                    mostrarModalConfirmacionGPS();
+                };
+                
                 return container;
             }
         });
@@ -398,6 +466,7 @@ document.addEventListener("DOMContentLoaded", function() {
                 
                 container.onclick = function(e) {
                     L.DomEvent.stopPropagation(e);
+                    L.DomEvent.preventDefault(e);
                     mapLocked = !mapLocked;
                     
                     if (mapLocked) {
@@ -422,6 +491,13 @@ document.addEventListener("DOMContentLoaded", function() {
                             if (mapLocked) container.click();
                         }, 30000);
                     }
+                };
+                
+                // CORRECCIÓN: Agregar evento táctil
+                container.ontouchstart = function(e) {
+                    L.DomEvent.stopPropagation(e);
+                    L.DomEvent.preventDefault(e);
+                    this.click();
                 };
                 
                 return container;
@@ -458,7 +534,7 @@ document.addEventListener("DOMContentLoaded", function() {
     }
 
     // =========================================================
-    // BUSCADOR INTEGRADO
+    // BUSCADOR INTEGRADO (CON CORRECCIONES PARA MÓVILES)
     // =========================================================
     function agregarBuscador(map) {
         const SearchControl = L.Control.extend({
@@ -527,6 +603,14 @@ document.addEventListener("DOMContentLoaded", function() {
 
                     resultsDiv.innerHTML = resultados.map(p => generarResultadoBusquedaHTML(p)).join('');
                     resultsDiv.style.display = 'block';
+                    
+                    // CORRECCIÓN: Aplicar prevención de propagación en resultados
+                    if (window.innerWidth <= 768) {
+                        const resultItems = resultsDiv.querySelectorAll('.search-result-item');
+                        resultItems.forEach(item => {
+                            L.DomEvent.disableClickPropagation(item);
+                        });
+                    }
                 }
 
                 function limpiarCacheViejo() {
@@ -599,11 +683,25 @@ document.addEventListener("DOMContentLoaded", function() {
                     }, 300);
                 });
 
+                // CORRECCIÓN: Usar eventos táctiles en móviles
+                if (window.innerWidth <= 768) {
+                    input.addEventListener('focus', function() {
+                        resultsDiv.style.display = 'block';
+                    });
+                }
+
                 document.addEventListener('click', function(e) {
                     if (!container.contains(e.target)) {
                         resultsDiv.style.display = 'none';
                     }
                 });
+
+                // CORRECCIÓN: También cerrar en toque fuera
+                document.addEventListener('touchstart', function(e) {
+                    if (!container.contains(e.target)) {
+                        resultsDiv.style.display = 'none';
+                    }
+                }, { passive: true });
 
                 return container;
             }
@@ -613,7 +711,7 @@ document.addEventListener("DOMContentLoaded", function() {
     }
 
     // =========================================================
-    // SEGUIMIENTO EN VIVO
+    // SEGUIMIENTO EN VIVO (CON CORRECCIONES TÁCTILES)
     // =========================================================
     function agregarControlLiveTracking(map) {
         const LiveTrackingControl = L.Control.extend({
@@ -627,6 +725,14 @@ document.addEventListener("DOMContentLoaded", function() {
                 
                 container.onclick = function(e) {
                     L.DomEvent.stopPropagation(e);
+                    L.DomEvent.preventDefault(e);
+                    toggleLiveTracking();
+                };
+                
+                // CORRECCIÓN: Agregar evento táctil
+                container.ontouchstart = function(e) {
+                    L.DomEvent.stopPropagation(e);
+                    L.DomEvent.preventDefault(e);
                     toggleLiveTracking();
                 };
                 
@@ -719,7 +825,7 @@ document.addEventListener("DOMContentLoaded", function() {
     }
 
     // =========================================================
-    // GPS Y CERCANÍA
+    // GPS Y CERCANÍA (CON CORRECCIONES TÁCTILES)
     // =========================================================
     function agregarControlGPS(map) {
         const GpsControl = L.Control.extend({
@@ -732,6 +838,14 @@ document.addEventListener("DOMContentLoaded", function() {
                 
                 container.onclick = function(e) {
                     L.DomEvent.stopPropagation(e);
+                    L.DomEvent.preventDefault(e);
+                    mostrarModalConfirmacionGPS();
+                };
+                
+                // CORRECCIÓN: Agregar evento táctil
+                container.ontouchstart = function(e) {
+                    L.DomEvent.stopPropagation(e);
+                    L.DomEvent.preventDefault(e);
                     mostrarModalConfirmacionGPS();
                 };
                 
@@ -852,10 +966,10 @@ document.addEventListener("DOMContentLoaded", function() {
                 Tu ubicación solo se usará para calcular distancias y no se almacenará.
             </p>
             <div class="gps-confirm-buttons">
-                <button class="gps-confirm-btn gps-confirm-yes" id="gps-confirm-yes">
+                <button class="gps-confirm-btn gps-confirm-yes" id="gps-confirm-yes" type="button">
                     Sí, usar mi ubicación
                 </button>
-                <button class="gps-confirm-btn gps-confirm-no" id="gps-confirm-no">
+                <button class="gps-confirm-btn gps-confirm-no" id="gps-confirm-no" type="button">
                     Cancelar
                 </button>
             </div>
@@ -864,20 +978,43 @@ document.addEventListener("DOMContentLoaded", function() {
         overlay.appendChild(modal);
         document.getElementById('map').appendChild(overlay);
         
-        document.getElementById('gps-confirm-yes').addEventListener('click', function() {
+        // CORRECCIÓN: Agregar eventos táctiles a los botones del modal
+        const yesBtn = document.getElementById('gps-confirm-yes');
+        const noBtn = document.getElementById('gps-confirm-no');
+        
+        yesBtn.addEventListener('click', function() {
             document.getElementById('map').removeChild(overlay);
             buscarCercanos();
         });
         
-        document.getElementById('gps-confirm-no').addEventListener('click', function() {
+        yesBtn.addEventListener('touchstart', function(e) {
+            L.DomEvent.stopPropagation(e);
+            L.DomEvent.preventDefault(e);
+            document.getElementById('map').removeChild(overlay);
+            buscarCercanos();
+        }, { passive: false });
+        
+        noBtn.addEventListener('click', function() {
             document.getElementById('map').removeChild(overlay);
         });
+        
+        noBtn.addEventListener('touchstart', function(e) {
+            L.DomEvent.stopPropagation(e);
+            L.DomEvent.preventDefault(e);
+            document.getElementById('map').removeChild(overlay);
+        }, { passive: false });
         
         overlay.addEventListener('click', function(e) {
             if (e.target === overlay) {
                 document.getElementById('map').removeChild(overlay);
             }
         });
+        
+        overlay.addEventListener('touchstart', function(e) {
+            if (e.target === overlay) {
+                document.getElementById('map').removeChild(overlay);
+            }
+        }, { passive: true });
     }
 
     // =========================================================
@@ -943,16 +1080,16 @@ document.addEventListener("DOMContentLoaded", function() {
             <h3>${titulo}</h3>
             <p>${mensaje}</p>
             <div class="maps-choice-buttons">
-                <button class="maps-choice-btn maps-choice-gmaps" id="btn-gmaps">
+                <button class="maps-choice-btn maps-choice-gmaps" id="btn-gmaps" type="button">
                     <span class="maps-choice-icon">🗺️</span>
                     <span class="maps-choice-text">Google Maps</span>
                 </button>
-                <button class="maps-choice-btn maps-choice-waze" id="btn-waze">
+                <button class="maps-choice-btn maps-choice-waze" id="btn-waze" type="button">
                     <span class="maps-choice-icon">🚗</span>
                     <span class="maps-choice-text">Waze</span>
                 </button>
             </div>
-            <button class="maps-choice-cancel" id="btn-cancelar">
+            <button class="maps-choice-cancel" id="btn-cancelar" type="button">
                 Cancelar
             </button>
         `;
@@ -960,8 +1097,19 @@ document.addEventListener("DOMContentLoaded", function() {
         overlay.appendChild(modal);
         document.body.appendChild(overlay);
         
-        document.getElementById('btn-gmaps').addEventListener('click', function() {
-            document.body.removeChild(overlay);
+        // CORRECCIÓN: Agregar eventos táctiles a los botones
+        const gmapsBtn = document.getElementById('btn-gmaps');
+        const wazeBtn = document.getElementById('btn-waze');
+        const cancelBtn = document.getElementById('btn-cancelar');
+        
+        function removeOverlay() {
+            if (overlay.parentNode) {
+                document.body.removeChild(overlay);
+            }
+        }
+        
+        gmapsBtn.addEventListener('click', function() {
+            removeOverlay();
             if (esRuta && userLat && userLon) {
                 window.crearRutaGoogleMaps(userLat, userLon, lat, lon, nombre);
             } else {
@@ -969,8 +1117,19 @@ document.addEventListener("DOMContentLoaded", function() {
             }
         });
         
-        document.getElementById('btn-waze').addEventListener('click', function() {
-            document.body.removeChild(overlay);
+        gmapsBtn.addEventListener('touchstart', function(e) {
+            L.DomEvent.stopPropagation(e);
+            L.DomEvent.preventDefault(e);
+            removeOverlay();
+            if (esRuta && userLat && userLon) {
+                window.crearRutaGoogleMaps(userLat, userLon, lat, lon, nombre);
+            } else {
+                window.abrirGoogleMaps(lat, lon, nombre);
+            }
+        }, { passive: false });
+        
+        wazeBtn.addEventListener('click', function() {
+            removeOverlay();
             if (esRuta) {
                 // Waze usa GPS propio
                 window.crearRutaWaze(userLat, userLon, lat, lon, nombre);
@@ -979,15 +1138,38 @@ document.addEventListener("DOMContentLoaded", function() {
             }
         });
         
-        document.getElementById('btn-cancelar').addEventListener('click', function() {
-            document.body.removeChild(overlay);
+        wazeBtn.addEventListener('touchstart', function(e) {
+            L.DomEvent.stopPropagation(e);
+            L.DomEvent.preventDefault(e);
+            removeOverlay();
+            if (esRuta) {
+                window.crearRutaWaze(userLat, userLon, lat, lon, nombre);
+            } else {
+                window.abrirWaze(lat, lon, nombre);
+            }
+        }, { passive: false });
+        
+        cancelBtn.addEventListener('click', function() {
+            removeOverlay();
         });
+        
+        cancelBtn.addEventListener('touchstart', function(e) {
+            L.DomEvent.stopPropagation(e);
+            L.DomEvent.preventDefault(e);
+            removeOverlay();
+        }, { passive: false });
         
         overlay.addEventListener('click', function(e) {
             if (e.target === overlay) {
-                document.body.removeChild(overlay);
+                removeOverlay();
             }
         });
+        
+        overlay.addEventListener('touchstart', function(e) {
+            if (e.target === overlay) {
+                removeOverlay();
+            }
+        }, { passive: true });
     };
 
     function mostrarNotificacionRuta(originLat, originLon, destLat, destLon, appNombre) {
@@ -1005,12 +1187,20 @@ document.addEventListener("DOMContentLoaded", function() {
                     <small>Se abrió en una nueva pestaña.</small>
                 </div>
             </div>
-            <button onclick="this.parentElement.remove()" class="route-notification-close">
+            <button onclick="this.parentElement.remove()" class="route-notification-close" type="button">
                 ×
             </button>
         `;
         
         document.body.appendChild(notificacion);
+        
+        // CORRECCIÓN: Agregar evento táctil al botón de cerrar
+        const closeBtn = notificacion.querySelector('.route-notification-close');
+        closeBtn.addEventListener('touchstart', function(e) {
+            L.DomEvent.stopPropagation(e);
+            L.DomEvent.preventDefault(e);
+            if (notificacion.parentNode) notificacion.parentNode.removeChild(notificacion);
+        }, { passive: false });
         
         setTimeout(() => {
             if (notificacion.parentNode) notificacion.remove();
@@ -1018,7 +1208,7 @@ document.addEventListener("DOMContentLoaded", function() {
     }
 
     // =========================================================
-    // FUNCIONES DE NAVEGACIÓN
+    // FUNCIONES DE NAVEGACIÓN (CON CORRECCIONES TÁCTILES)
     // =========================================================
     window.zoomAPlaza = async function(lat, lon, clave) {
         if (!mapInstance) {
@@ -1172,7 +1362,7 @@ document.addEventListener("DOMContentLoaded", function() {
         } catch (error) {
             console.error("Error obteniendo plazas cercanas:", error);
             modal.innerHTML = `
-                <span class="btn-close-gps" onclick="window.history.back()">×</span>
+                <span class="btn-close-gps" onclick="window.history.back()" ontouchstart="window.history.back()">×</span>
                 <div class="gps-error">
                     ⚠️ ${error}
                 </div>
@@ -1211,7 +1401,7 @@ document.addEventListener("DOMContentLoaded", function() {
         
         // Botón de cierre ahora ejecuta history.back() para ser consistente
         let html = `
-            <span class="btn-close-gps" onclick="window.history.back()">×</span>
+            <span class="btn-close-gps" onclick="window.history.back()" ontouchstart="window.history.back()">×</span>
             <h4 class="gps-title">🏢 Las 5 más cercanas</h4>
         `;
 
@@ -1234,7 +1424,13 @@ document.addEventListener("DOMContentLoaded", function() {
 
         modal.innerHTML = html;
         
+        // CORRECCIÓN: Aplicar prevención de propagación en los botones del modal
         if (window.innerWidth <= 768) {
+            const buttons = modal.querySelectorAll('.btn-map-popup');
+            buttons.forEach(button => {
+                L.DomEvent.disableClickPropagation(button);
+            });
+            
             configurarSwipeToClose(modal);
         }
     }
@@ -1390,7 +1586,7 @@ document.addEventListener("DOMContentLoaded", function() {
     }
 
     // =========================================================
-    // PROCESAR PUNTOS EN EL MAPA (MODIFICADA)
+    // PROCESAR PUNTOS EN EL MAPA (MODIFICADA CON CORRECCIONES PARA MÓVILES)
     // =========================================================
     function procesarPuntosMapa(datos) {
         if (!mapInstance || !markersGroup) return;
@@ -1430,12 +1626,33 @@ document.addEventListener("DOMContentLoaded", function() {
                 popupCache.set(clave, popupHTML);
             }
             
-            marker.bindPopup(popupHTML, {
+            const popup = L.popup({
                 maxWidth: window.innerWidth <= 768 ? 250 : 300
+            }).setContent(popupHTML);
+            
+            marker.bindPopup(popup);
+            
+            // CORRECCIÓN: Interceptar apertura del popup para aplicar correcciones
+            marker.on('popupopen', function() {
+                const popupElement = this.getPopup().getElement();
+                if (popupElement) {
+                    aplicarCorreccionEventosMoviles(popupElement);
+                }
             });
             
             marker.on('click', function() {
                 // 🔥 CENTRAR MAPA EN LA PLAZA AL HACER CLIC
+                mapInstance.flyTo(this.getLatLng(), 16, {
+                    animate: true,
+                    duration: 0.5
+                });
+                
+                this.openPopup();
+                lastManualInteraction = Date.now();
+            });
+            
+            // CORRECCIÓN: También responder a toques
+            marker.on('touchstart', function() {
                 mapInstance.flyTo(this.getLatLng(), 16, {
                     animate: true,
                     duration: 0.5
@@ -1476,7 +1693,7 @@ document.addEventListener("DOMContentLoaded", function() {
     }
 
     // =========================================================
-    // NAVEGACIÓN ENTRE VISTAS
+    // NAVEGACIÓN ENTRE VISTAS (CON CORRECCIONES TÁCTILES)
     // =========================================================
     window.irADetallePlaza = function(clave, volverAlMapa = false) {
         try {
@@ -1566,6 +1783,13 @@ document.addEventListener("DOMContentLoaded", function() {
                             return false;
                         };
                         
+                        backButton.ontouchstart = function(e) {
+                            e.preventDefault();
+                            e.stopPropagation();
+                            window.volverAlMapa();
+                            return false;
+                        };
+                        
                         backButton.innerHTML = '<i class="fa-solid fa-map"></i> Volver al Mapa';
                         backButton.classList.add('back-to-map-button');
                     }
@@ -1587,7 +1811,7 @@ document.addEventListener("DOMContentLoaded", function() {
     }
 
     // =========================================================
-    // BOTÓN DE RESTABLECER MAPA
+    // BOTÓN DE RESTABLECER MAPA (CON CORRECCIONES TÁCTILES)
     // =========================================================
     function agregarResetMapButton() {
         if (!document.getElementById('reset-map-button')) {
@@ -1597,6 +1821,7 @@ document.addEventListener("DOMContentLoaded", function() {
             button.innerHTML = '<span class="reset-icon">🔄</span> <span class="reset-text">Restablecer Vista</span>';
             button.title = "Restablecer el mapa a vista inicial";
             button.style.marginTop = '10px';
+            button.type = 'button';
             
             button.onclick = function() {
                 if (mapInstance) {
@@ -1618,6 +1843,13 @@ document.addEventListener("DOMContentLoaded", function() {
                     
                     mostrarNotificacion('Mapa restablecido a vista inicial');
                 }
+            };
+            
+            // CORRECCIÓN: Agregar evento táctil
+            button.ontouchstart = function(e) {
+                L.DomEvent.stopPropagation(e);
+                L.DomEvent.preventDefault(e);
+                this.click();
             };
             
             setTimeout(() => {
@@ -1664,12 +1896,20 @@ document.addEventListener("DOMContentLoaded", function() {
         notificacion.innerHTML = `
             <div class="notification-icon">${icon}</div>
             <div class="notification-text">${mensaje}</div>
-            <button onclick="this.parentElement.remove()" class="notification-close">
+            <button onclick="this.parentElement.remove()" class="notification-close" type="button">
                 ×
             </button>
         `;
         
         document.body.appendChild(notificacion);
+        
+        // CORRECCIÓN: Agregar evento táctil al botón de cerrar
+        const closeBtn = notificacion.querySelector('.notification-close');
+        closeBtn.addEventListener('touchstart', function(e) {
+            L.DomEvent.stopPropagation(e);
+            L.DomEvent.preventDefault(e);
+            if (notificacion.parentNode) notificacion.parentNode.removeChild(notificacion);
+        }, { passive: false });
         
         setTimeout(() => {
             if (notificacion.parentNode) document.body.removeChild(notificacion);
@@ -1677,7 +1917,7 @@ document.addEventListener("DOMContentLoaded", function() {
     }
 
     // =========================================================
-    // LÓGICA DE RUTA MEJORADA
+    // LÓGICA DE RUTA MEJORADA (CON CORRECCIONES TÁCTILES)
     // =========================================================
     window.solicitarUbicacionParaRuta = function(destLat, destLon, destinoNombre, userLat = null, userLon = null) {
         // Si ya tenemos ubicación, vamos directo
@@ -1699,10 +1939,10 @@ document.addEventListener("DOMContentLoaded", function() {
             <h3>🚗 Crear Ruta</h3>
             <p>Necesitamos tu ubicación actual para trazar la ruta hacia <strong>${destinoNombre}</strong>.</p>
             <div class="gps-confirm-buttons">
-                <button class="gps-confirm-btn gps-confirm-yes" id="ruta-confirm-yes">
+                <button class="gps-confirm-btn gps-confirm-yes" id="ruta-confirm-yes" type="button">
                     📍 Obtener Ubicación y Crear Ruta
                 </button>
-                <button class="gps-confirm-btn gps-confirm-no" id="ruta-confirm-no">
+                <button class="gps-confirm-btn gps-confirm-no" id="ruta-confirm-no" type="button">
                     Cancelar
                 </button>
             </div>
@@ -1711,32 +1951,54 @@ document.addEventListener("DOMContentLoaded", function() {
         overlay.appendChild(modal);
         document.body.appendChild(overlay); // Usar body es más seguro que map
         
-        // EVENTO: SI (Crear Ruta)
-        document.getElementById('ruta-confirm-yes').addEventListener('click', function() {
-            // 1. Cerrar modal
+        // CORRECCIÓN: Agregar eventos táctiles a los botones del modal de ruta
+        const yesBtn = document.getElementById('ruta-confirm-yes');
+        const noBtn = document.getElementById('ruta-confirm-no');
+        
+        function handleYes() {
             document.body.removeChild(overlay);
-            
-            // 2. Mostrar pantalla de carga
             mostrarLoaderRuta("Obteniendo tu ubicación GPS...");
             
-            // 3. Obtener ubicación
             obtenerUbicacionUsuario(false)
                 .then(location => {
-                    // Éxito
                     ocultarLoaderRuta();
                     window.mostrarOpcionesNavegacion(destLat, destLon, destinoNombre, true, location.lat, location.lon);
                 })
                 .catch(error => {
-                    // Error
                     ocultarLoaderRuta();
                     alert(`⚠️ No pudimos obtener tu ubicación: ${error}`);
                 });
+        }
+        
+        function handleNo() {
+            document.body.removeChild(overlay);
+        }
+        
+        yesBtn.addEventListener('click', handleYes);
+        yesBtn.addEventListener('touchstart', function(e) {
+            L.DomEvent.stopPropagation(e);
+            L.DomEvent.preventDefault(e);
+            handleYes();
+        }, { passive: false });
+        
+        noBtn.addEventListener('click', handleNo);
+        noBtn.addEventListener('touchstart', function(e) {
+            L.DomEvent.stopPropagation(e);
+            L.DomEvent.preventDefault(e);
+            handleNo();
+        }, { passive: false });
+        
+        overlay.addEventListener('click', function(e) {
+            if (e.target === overlay) {
+                document.body.removeChild(overlay);
+            }
         });
         
-        // EVENTO: NO (Cancelar)
-        document.getElementById('ruta-confirm-no').addEventListener('click', function() {
-            document.body.removeChild(overlay);
-        });
+        overlay.addEventListener('touchstart', function(e) {
+            if (e.target === overlay) {
+                document.body.removeChild(overlay);
+            }
+        }, { passive: true });
     }
 
     // =========================================================
