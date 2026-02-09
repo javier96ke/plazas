@@ -294,7 +294,7 @@ document.addEventListener("DOMContentLoaded", function() {
     }
 
     // =========================================================
-    // 1. INICIALIZACIÓN DEL MAPA (OPTIMIZADA)
+    // 1. INICIALIZACIÓN DEL MAPA TURBO (OPTIMIZADA PARA MÓVILES)
     // =========================================================
     function initMap() {
         if (typeof L === 'undefined') {
@@ -305,7 +305,7 @@ document.addEventListener("DOMContentLoaded", function() {
         const mapContainer = document.getElementById('map');
         if (!mapContainer || mapInitialized) return;
 
-        console.log("🗺️ Inicializando mapa...");
+        console.log("🗺️ Inicializando mapa TURBO para móviles...");
 
         const calle = L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
             attribution: '© OpenStreetMap', maxZoom: 18
@@ -315,11 +315,14 @@ document.addEventListener("DOMContentLoaded", function() {
             attribution: '© Esri', maxZoom: 18
         });
 
+        // 1. OPTIMIZACIÓN CANVAS (CRÍTICO PARA MÓVILES)
         mapInstance = L.map('map', {
             center: [23.6345, -102.5528],
             zoom: 5,
             layers: [calle],
-            zoomControl: false // Lo agregamos manual si queremos, o dejamos el default
+            zoomControl: false,
+            preferCanvas: true,  
+            markerZoomAnimation: false 
         });
         
         // Agregar controles de zoom manualmente abajo a la derecha para móviles
@@ -328,11 +331,15 @@ document.addEventListener("DOMContentLoaded", function() {
         configurarGestosParaMoviles(mapInstance);
         L.control.layers({ "Mapa": calle, "Satélite": satelite }).addTo(mapInstance);
 
+        // 2. OPTIMIZACIÓN CLUSTERS PARA CARGA MASIVA
         markersGroup = L.markerClusterGroup({ 
             disableClusteringAtZoom: 16,
-            spiderfyOnMaxZoom: true,
-            maxClusterRadius: 60,
-            chunkedLoading: true 
+            spiderfyOnMaxZoom: true, // 
+            maxClusterRadius: 70,     // Agrupa más agresivamente
+            chunkedLoading: true,
+            chunkInterval: 200,       // Tiempos ajustados para móviles
+            chunkDelay: 50,
+            showCoverageOnHover: false // Reduce procesamiento
         });
 
         mapInstance.addLayer(markersGroup);
@@ -648,8 +655,8 @@ document.addEventListener("DOMContentLoaded", function() {
             
             const options = {
                 enableHighAccuracy: true,
-                maximumAge: 0,
-                timeout: 5000
+                maximumAge: 30000,
+                timeout: 7000
             };
 
             watchId = navigator.geolocation.watchPosition((position) => {
@@ -740,19 +747,20 @@ document.addEventListener("DOMContentLoaded", function() {
     }
 
     // =========================================================
-    // FUNCIONES DE UBICACIÓN
+    // FUNCIONES DE UBICACIÓN (OPTIMIZADA PARA MÓVILES)
     // =========================================================
     function obtenerUbicacionUsuario(mostrarEnMapa = true) {
         return new Promise((resolve, reject) => {
             if (!navigator.geolocation) {
-                reject("Tu navegador no soporta geolocalización.");
+                reject("GPS no soportado");
                 return;
             }
 
+            // OPTIMIZACIÓN: Relaja la precisión para obtener ubicación más rápido
             const options = {
-                enableHighAccuracy: true,
-                timeout: 10000,
-                maximumAge: 0
+                enableHighAccuracy: true, // Intenta ser preciso...
+                timeout: 7000,            // ...pero ríndete a los 7 segundos (antes era 10s)
+                maximumAge: 300000        // Acepta una ubicación de hace 5 minutos (caché)
             };
 
             navigator.geolocation.getCurrentPosition(
@@ -1784,6 +1792,6 @@ document.addEventListener("DOMContentLoaded", function() {
         lastClickedPlaza: null
     };
     
-    console.log('✅ Mapa optimizado para móviles inicializado');
+    console.log('✅ Mapa TURBO optimizado para móviles inicializado');
     observeViewChanges();
 });
