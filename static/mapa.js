@@ -244,37 +244,10 @@ document.addEventListener("DOMContentLoaded", function() {
         return popupHTML;
     }
 
-    // FIX #3b: Adjuntar eventos DESPUÉS de que el popup está en el DOM
+    // Los eventos de botones del popup los maneja la delegación global en manejarEventoMapa().
+    // Esta función solo previene que Leaflet cierre el popup al tocar dentro.
     function aplicarEventosPopup(popupElement) {
         if (!popupElement) return;
-        
-        const buttons = popupElement.querySelectorAll('[data-action]');
-        buttons.forEach(btn => {
-            const action = btn.dataset.action;
-            const lat = parseFloat(btn.dataset.lat);
-            const lng = parseFloat(btn.dataset.lng);
-            const clave = btn.dataset.clave;
-            
-            addTapListener(btn, function() {
-                switch(action) {
-                    case 'detalle':
-                        window.navigationContext.cameFromMap = true;
-                        window.irADetallePlaza(clave);
-                        break;
-                    case 'zoom':
-                        window.zoomAPlaza(lat, lng, clave);
-                        break;
-                    case 'maps':
-                        window.mostrarOpcionesNavegacion(lat, lng, clave, false);
-                        break;
-                    case 'ruta':
-                        window.solicitarUbicacionParaRuta(lat, lng, clave);
-                        break;
-                }
-            });
-        });
-        
-        // Evitar que el popup se cierre al tocar dentro (sin bloquear scroll)
         if (window.L) {
             L.DomEvent.disableClickPropagation(popupElement);
         }
@@ -368,55 +341,10 @@ document.addEventListener("DOMContentLoaded", function() {
         `;
     }
 
-    // FIX: Función unificada para adjuntar eventos a containers con data-action
+    // Los eventos los maneja la delegación global en manejarEventoMapa().
+    // Esta función se mantiene como no-op para no romper llamadas existentes.
     function aplicarEventosContainer(container) {
-        if (!container) return;
-        
-        const buttons = container.querySelectorAll('[data-action]');
-        buttons.forEach(btn => {
-            const action = btn.dataset.action;
-            
-            addTapListener(btn, function() {
-                const lat = parseFloat(btn.dataset.lat);
-                const lng = parseFloat(btn.dataset.lng);
-                const clave = btn.dataset.clave;
-                
-                switch(action) {
-                    case 'detalle':
-                        window.navigationContext.cameFromMap = true;
-                        window.irADetallePlaza(clave);
-                        break;
-                    case 'zoom':
-                        window.zoomAPlaza(lat, lng, clave);
-                        document.getElementById('search-results') && 
-                            (document.getElementById('search-results').style.display = 'none');
-                        if (document.getElementById('map-search-input'))
-                            document.getElementById('map-search-input').value = clave;
-                        break;
-                    case 'maps':
-                        window.mostrarOpcionesNavegacion(lat, lng, clave, false);
-                        break;
-                    case 'ruta':
-                        window.solicitarUbicacionParaRuta(lat, lng, clave);
-                        break;
-                    case 'ruta-con-origen':
-                        const uLat = parseFloat(btn.dataset.userLat);
-                        const uLng = parseFloat(btn.dataset.userLng);
-                        window.solicitarUbicacionParaRuta(lat, lng, clave,
-                            isNaN(uLat) ? null : uLat,
-                            isNaN(uLng) ? null : uLng
-                        );
-                        break;
-                    case 'search-select':
-                        window.zoomAPlaza(lat, lng, clave);
-                        const sr = document.getElementById('search-results');
-                        if (sr) sr.style.display = 'none';
-                        const si = document.getElementById('map-search-input');
-                        if (si) si.value = clave;
-                        break;
-                }
-            });
-        });
+        // Delegación global en el div#map ya cubre todos los data-action
     }
 
     // =========================================================
@@ -514,7 +442,32 @@ document.addEventListener("DOMContentLoaded", function() {
 
         mapInstance.addLayer(markersGroup);
         mapInitialized = true;
-        
+
+        // =========================================================
+        // FIX ROBUSTO: DELEGACIÓN GLOBAL DE EVENTOS EN EL MAPA
+        // Un solo listener captura TODOS los botones con data-action
+        // dentro del mapa (popups, modal cercanas, resultados búsqueda).
+        // Esto elimina la dependencia de popupopen, aplicarEventosPopup
+        // y addTapListener por botón — que fallaban en móvil cuando el
+        // popup ya estaba cacheado o el evento no disparaba correctamente.
+        // Cubre: detalle, zoom, maps, ruta, ruta-con-origen, search-select
+        // =========================================================
+        const mapEl = document.getElementById('map');
+        if (mapEl) {
+            // Click para desktop
+            mapEl.addEventListener('click', manejarEventoMapa);
+            // Touch para móvil — touchend para no bloquear scroll
+            mapEl.addEventListener('touchend', function(e) {
+                // Solo si no hubo movimiento (no es scroll)
+                const touch = e.changedTouches[0];
+                const target = document.elementFromPoint(touch.clientX, touch.clientY);
+                if (target && target.closest('[data-action]')) {
+                    e.preventDefault();
+                    manejarEventoMapa(e);
+                }
+            }, { passive: false });
+        }
+
         setupBackButtonInterceptor();
         agregarResetMapButton();
         agregarControlLiveTracking(mapInstance);
@@ -522,35 +475,92 @@ document.addEventListener("DOMContentLoaded", function() {
         
         gestionarDatosMapa();
     }
-function agregarControlesInmediatos(map) {
-    const GpsControl = L.Control.extend({
-        options: { position: 'topleft' },
-        onAdd: function() {
-            const container = L.DomUtil.create('div', 'leaflet-bar leaflet-control leaflet-control-gps');
-            container.innerHTML = '<span class="gps-icon">🧭</span> <span class="gps-text">Cercanas</span>';
-            container.style.cursor = 'pointer';
-            
-            addTapListener(container, function() {
-                mostrarModalConfirmacionGPS();
-            });
-            
-            L.DomEvent.disableClickPropagation(container);
-            
-            return container;
-        }
-    });
-    map.addControl(new GpsControl());
-    agregarBuscador(map);
 
-    // FIX: crear el div contenedor del modal de plazas cercanas
-    if (!document.getElementById('gps-results-modal')) {
-        const resultsDiv = document.createElement('div');
-        resultsDiv.id = 'gps-results-modal';
-        resultsDiv.style.display = 'none';
-        const mapEl = document.getElementById('map');
-        if (mapEl) mapEl.appendChild(resultsDiv);
+    // Manejador unificado para delegación global
+    function manejarEventoMapa(e) {
+        const btn = (e.target || e.changedTouches && document.elementFromPoint(
+            e.changedTouches[0].clientX, e.changedTouches[0].clientY
+        ));
+        const actionEl = btn && btn.closest('[data-action]');
+        if (!actionEl) return;
+
+        e.stopPropagation();
+
+        const action = actionEl.dataset.action;
+        const lat    = parseFloat(actionEl.dataset.lat);
+        const lng    = parseFloat(actionEl.dataset.lng);
+        const clave  = actionEl.dataset.clave;
+
+        switch(action) {
+            case 'detalle':
+                window.navigationContext.cameFromMap = true;
+                window.irADetallePlaza(clave);
+                break;
+            case 'zoom':
+                window.zoomAPlaza(lat, lng, clave);
+                const sr = document.getElementById('search-results');
+                if (sr) sr.style.display = 'none';
+                const si = document.getElementById('map-search-input');
+                if (si) si.value = clave;
+                break;
+            case 'maps':
+                window.mostrarOpcionesNavegacion(lat, lng, clave, false);
+                break;
+            case 'ruta':
+                window.solicitarUbicacionParaRuta(lat, lng, clave);
+                break;
+            case 'ruta-con-origen':
+                const uLat = parseFloat(actionEl.dataset.userLat);
+                const uLng = parseFloat(actionEl.dataset.userLng);
+                window.solicitarUbicacionParaRuta(
+                    lat, lng, clave,
+                    isNaN(uLat) ? null : uLat,
+                    isNaN(uLng) ? null : uLng
+                );
+                break;
+            case 'search-select':
+                window.zoomAPlaza(lat, lng, clave);
+                const sr2 = document.getElementById('search-results');
+                if (sr2) sr2.style.display = 'none';
+                const si2 = document.getElementById('map-search-input');
+                if (si2) si2.value = clave;
+                break;
+        }
     }
-}
+
+    function agregarControlesInmediatos(map) {
+        const GpsControl = L.Control.extend({
+            options: { position: 'topleft' },
+            onAdd: function() {
+                const container = L.DomUtil.create('div', 'leaflet-bar leaflet-control leaflet-control-gps');
+                container.innerHTML = '<span class="gps-icon">🧭</span> <span class="gps-text">Cercanas</span>';
+                container.style.cursor = 'pointer';
+                
+                // FIX: usar addTapListener en lugar de duplicar click+touchstart
+                addTapListener(container, function() {
+                    mostrarModalConfirmacionGPS();
+                });
+                
+                // Prevenir que Leaflet intercepte el evento
+                L.DomEvent.disableClickPropagation(container);
+                
+                return container;
+            }
+        });
+        map.addControl(new GpsControl());
+        agregarBuscador(map);
+
+        // FIX CRÍTICO: crear el div contenedor del modal de plazas cercanas
+        // Este div lo creaba agregarControlGPS() que fue eliminada al refactorizar,
+        // pero buscarCercanos() lo busca con getElementById y salía silenciosamente si no existía.
+        if (!document.getElementById('gps-results-modal')) {
+            const resultsDiv = document.createElement('div');
+            resultsDiv.id = 'gps-results-modal';
+            resultsDiv.style.display = 'none';
+            const mapEl = document.getElementById('map');
+            if (mapEl) mapEl.appendChild(resultsDiv);
+        }
+    }
 
     // =========================================================
     // GESTOS PARA MÓVILES
