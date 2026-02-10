@@ -522,29 +522,35 @@ document.addEventListener("DOMContentLoaded", function() {
         
         gestionarDatosMapa();
     }
+function agregarControlesInmediatos(map) {
+    const GpsControl = L.Control.extend({
+        options: { position: 'topleft' },
+        onAdd: function() {
+            const container = L.DomUtil.create('div', 'leaflet-bar leaflet-control leaflet-control-gps');
+            container.innerHTML = '<span class="gps-icon">🧭</span> <span class="gps-text">Cercanas</span>';
+            container.style.cursor = 'pointer';
+            
+            addTapListener(container, function() {
+                mostrarModalConfirmacionGPS();
+            });
+            
+            L.DomEvent.disableClickPropagation(container);
+            
+            return container;
+        }
+    });
+    map.addControl(new GpsControl());
+    agregarBuscador(map);
 
-    function agregarControlesInmediatos(map) {
-        const GpsControl = L.Control.extend({
-            options: { position: 'topleft' },
-            onAdd: function() {
-                const container = L.DomUtil.create('div', 'leaflet-bar leaflet-control leaflet-control-gps');
-                container.innerHTML = '<span class="gps-icon">🧭</span> <span class="gps-text">Cercanas</span>';
-                container.style.cursor = 'pointer';
-                
-                // FIX: usar addTapListener en lugar de duplicar click+touchstart
-                addTapListener(container, function() {
-                    mostrarModalConfirmacionGPS();
-                });
-                
-                // Prevenir que Leaflet intercepte el evento
-                L.DomEvent.disableClickPropagation(container);
-                
-                return container;
-            }
-        });
-        map.addControl(new GpsControl());
-        agregarBuscador(map);
+    // FIX: crear el div contenedor del modal de plazas cercanas
+    if (!document.getElementById('gps-results-modal')) {
+        const resultsDiv = document.createElement('div');
+        resultsDiv.id = 'gps-results-modal';
+        resultsDiv.style.display = 'none';
+        const mapEl = document.getElementById('map');
+        if (mapEl) mapEl.appendChild(resultsDiv);
     }
+}
 
     // =========================================================
     // GESTOS PARA MÓVILES
