@@ -29,6 +29,62 @@ document.addEventListener("DOMContentLoaded", function() {
     const SEARCH_CACHE_TTL = 300000;
 
     // =========================================================
+    // FIX #1: HELPER UNIFICADO PARA EVENTOS TÁCTILES
+    // Reemplaza el patrón duplicado onclick + ontouchstart que
+    // causaba doble disparo en iOS y bloqueo en Android.
+    // Usa "touchend" en lugar de "touchstart" para no bloquear scroll.
+    // =========================================================
+    function addTapListener(element, handler) {
+        if (!element) return;
+        let touchMoved = false;
+
+        element.addEventListener('touchstart', function() {
+            touchMoved = false;
+        }, { passive: true }); // passive:true = NO bloquea scroll nunca
+
+        element.addEventListener('touchmove', function() {
+            touchMoved = true;
+        }, { passive: true });
+
+        element.addEventListener('touchend', function(e) {
+            if (!touchMoved) {
+                e.preventDefault(); // Solo en touchend, no en touchstart
+                handler(e);
+            }
+        }, { passive: false });
+
+        // Click normal como fallback para desktop/tablets
+        element.addEventListener('click', function(e) {
+            handler(e);
+        });
+    }
+
+    // =========================================================
+    // FIX #2: FETCH CON TIMEOUT Y ABORT CONTROLLER
+    // Render tiene cold starts de hasta 30s. Sin esto, la UI
+    // queda congelada esperando una respuesta que no llega.
+    // =========================================================
+    async function fetchConTimeout(url, opciones = {}, timeoutMs = 8000) {
+        const controller = new AbortController();
+        const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
+        
+        try {
+            const response = await fetch(url, {
+                ...opciones,
+                signal: controller.signal
+            });
+            clearTimeout(timeoutId);
+            return response;
+        } catch (error) {
+            clearTimeout(timeoutId);
+            if (error.name === 'AbortError') {
+                throw new Error('Tiempo de espera agotado. El servidor tardó demasiado.');
+            }
+            throw error;
+        }
+    }
+
+    // =========================================================
     // ENDPOINTS DEL BACKEND
     // =========================================================
     const ENDPOINT_MAPA_SEGURO = '/api/mapa/seguro';
@@ -81,7 +137,10 @@ document.addEventListener("DOMContentLoaded", function() {
     }
 
     // =========================================================
-    // FUNCIONES PARA GENERAR HTML EN FRONTEND (CORREGIDA PARA MÓVILES)
+    // FIX #3: GENERACIÓN DE POPUPS SIN HANDLERS INLINE DUPLICADOS
+    // El patrón onclick + ontouchstart en HTML generado causaba
+    // doble ejecución en iOS Safari. Ahora usamos data-* attributes
+    // y delegación de eventos con addTapListener.
     // =========================================================
     function generarPopupHTML(plaza) {
         const clave = plaza.Clave_Plaza || plaza.clave || 'Sin clave';
@@ -101,7 +160,8 @@ document.addEventListener("DOMContentLoaded", function() {
         
         const esMovil = window.innerWidth <= 768;
         
-        // CORRECCIÓN CRÍTICA: Usar L.DomEvent.disableClickPropagation en el contenedor
+        // FIX: Usar data-* attributes en lugar de onclick/ontouchstart inline
+        // Los eventos se adjuntan en aplicarEventosPopup() después de que el DOM existe
         const popupHTML = !esMovil ? `
         <div class="popup-container">
             <div class="popup-header">
@@ -117,39 +177,34 @@ document.addEventListener("DOMContentLoaded", function() {
                 ${situacionHTML ? `<p class="popup-situacion">${situacionHTML}</p>` : ''}
                 
                 <div class="popup-actions">
-                    <!-- CORRECCIÓN: Botones tipo <a> con eventos táctiles -->
-                    <a href="javascript:void(0)" 
-                       onclick="window.navigationContext.cameFromMap = true; window.irADetallePlaza('${claveEscapada}')" 
-                       ontouchstart="window.navigationContext.cameFromMap = true; window.irADetallePlaza('${claveEscapada}')"
+                    <button type="button"
+                       data-action="detalle" data-clave="${claveEscapada}"
                        class="btn-map-popup btn-map-popup-details">
                         <span class="popup-icon">📋</span>
                         <span class="popup-text">Ver Detalles</span>
-                    </a>
+                    </button>
                     
-                    <a href="javascript:void(0)" 
-                       onclick="window.zoomAPlaza(${lat}, ${lng}, '${claveEscapada}')" 
-                       ontouchstart="window.zoomAPlaza(${lat}, ${lng}, '${claveEscapada}')"
+                    <button type="button"
+                       data-action="zoom" data-lat="${lat}" data-lng="${lng}" data-clave="${claveEscapada}"
                        class="btn-map-popup btn-map-popup-zoom">
                         <span class="popup-icon">📍</span>
                         <span class="popup-text">Centrar</span>
-                    </a>
+                    </button>
                     
                     <div class="popup-buttons-grid">
-                        <a href="javascript:void(0)" 
-                           onclick="window.mostrarOpcionesNavegacion(${lat}, ${lng}, '${claveEscapada}', false)" 
-                           ontouchstart="window.mostrarOpcionesNavegacion(${lat}, ${lng}, '${claveEscapada}', false)"
+                        <button type="button"
+                           data-action="maps" data-lat="${lat}" data-lng="${lng}" data-clave="${claveEscapada}"
                            class="btn-map-popup btn-map-popup-gmaps">
                             <span class="popup-icon">🗺️</span>
                             <span class="popup-text">Maps</span>
-                        </a>
+                        </button>
                         
-                        <a href="javascript:void(0)" 
-                           onclick="window.solicitarUbicacionParaRuta(${lat}, ${lng}, '${claveEscapada}')" 
-                           ontouchstart="window.solicitarUbicacionParaRuta(${lat}, ${lng}, '${claveEscapada}')"
+                        <button type="button"
+                           data-action="ruta" data-lat="${lat}" data-lng="${lng}" data-clave="${claveEscapada}"
                            class="btn-map-popup btn-map-popup-route">
                             <span class="popup-icon">🚗</span>
                             <span class="popup-text">Ruta</span>
-                        </a>
+                        </button>
                     </div>
                 </div>
             </div>
@@ -163,28 +218,24 @@ document.addEventListener("DOMContentLoaded", function() {
             </div>
             
             <div class="popup-content mobile">
-                <!-- CORRECCIÓN: En móviles también usar <a> con eventos táctiles -->
-                <a href="javascript:void(0)" 
-                   onclick="window.navigationContext.cameFromMap = true; window.irADetallePlaza('${claveEscapada}')" 
-                   ontouchstart="window.navigationContext.cameFromMap = true; window.irADetallePlaza('${claveEscapada}')"
+                <button type="button"
+                   data-action="detalle" data-clave="${claveEscapada}"
                    class="btn-map-popup btn-map-popup-details mobile">
                     📋 Detalles
-                </a>
+                </button>
                 
                 <div class="popup-buttons-grid mobile">
-                    <a href="javascript:void(0)" 
-                       onclick="window.mostrarOpcionesNavegacion(${lat}, ${lng}, '${claveEscapada}', false)" 
-                       ontouchstart="window.mostrarOpcionesNavegacion(${lat}, ${lng}, '${claveEscapada}', false)"
+                    <button type="button"
+                       data-action="maps" data-lat="${lat}" data-lng="${lng}" data-clave="${claveEscapada}"
                        class="btn-map-popup btn-map-popup-gmaps mobile">
                         🗺️ Maps
-                    </a>
+                    </button>
                     
-                    <a href="javascript:void(0)" 
-                       onclick="window.solicitarUbicacionParaRuta(${lat}, ${lng}, '${claveEscapada}')" 
-                       ontouchstart="window.solicitarUbicacionParaRuta(${lat}, ${lng}, '${claveEscapada}')"
+                    <button type="button"
+                       data-action="ruta" data-lat="${lat}" data-lng="${lng}" data-clave="${claveEscapada}"
                        class="btn-map-popup btn-map-popup-route mobile">
                         🚗 Ruta
-                    </a>
+                    </button>
                 </div>
             </div>
         </div>
@@ -193,32 +244,39 @@ document.addEventListener("DOMContentLoaded", function() {
         return popupHTML;
     }
 
-    // Función auxiliar para aplicar la corrección de propagación de eventos
-    function aplicarCorreccionEventosMoviles(popupElement) {
-        if (window.innerWidth <= 768 && popupElement && window.L) {
-            // Deshabilitar propagación de clics en el contenido del popup
-            const popupContent = popupElement.querySelector('.popup-content');
-            if (popupContent) {
-                L.DomEvent.disableClickPropagation(popupContent);
-            }
+    // FIX #3b: Adjuntar eventos DESPUÉS de que el popup está en el DOM
+    function aplicarEventosPopup(popupElement) {
+        if (!popupElement) return;
+        
+        const buttons = popupElement.querySelectorAll('[data-action]');
+        buttons.forEach(btn => {
+            const action = btn.dataset.action;
+            const lat = parseFloat(btn.dataset.lat);
+            const lng = parseFloat(btn.dataset.lng);
+            const clave = btn.dataset.clave;
             
-            // También deshabilitar en el contenedor principal
-            L.DomEvent.disableClickPropagation(popupElement);
-            
-            // Asegurar que los botones no propaguen eventos
-            const buttons = popupElement.querySelectorAll('.btn-map-popup');
-            buttons.forEach(button => {
-                L.DomEvent.disableClickPropagation(button);
-                
-                // Agregar clase táctil para feedback visual
-                button.addEventListener('touchstart', function() {
-                    this.classList.add('touch-active');
-                }, { passive: true });
-                
-                button.addEventListener('touchend', function() {
-                    this.classList.remove('touch-active');
-                }, { passive: true });
+            addTapListener(btn, function() {
+                switch(action) {
+                    case 'detalle':
+                        window.navigationContext.cameFromMap = true;
+                        window.irADetallePlaza(clave);
+                        break;
+                    case 'zoom':
+                        window.zoomAPlaza(lat, lng, clave);
+                        break;
+                    case 'maps':
+                        window.mostrarOpcionesNavegacion(lat, lng, clave, false);
+                        break;
+                    case 'ruta':
+                        window.solicitarUbicacionParaRuta(lat, lng, clave);
+                        break;
+                }
             });
+        });
+        
+        // Evitar que el popup se cierre al tocar dentro (sin bloquear scroll)
+        if (window.L) {
+            L.DomEvent.disableClickPropagation(popupElement);
         }
     }
 
@@ -239,15 +297,11 @@ document.addEventListener("DOMContentLoaded", function() {
         const icono = resultado.tipo_coincidencia === 'exacta' ? '🎯' : '📍';
         const ubicacion = municipioHTML ? `${estadoHTML}, ${municipioHTML}` : estadoHTML;
         
-        // CORRECCIÓN: Usar <a> con eventos táctiles para resultados de búsqueda
+        // FIX: data-* attributes, eventos adjuntados después
         return `
-        <a href="javascript:void(0)" 
-           onclick="window.zoomAPlaza(${lat}, ${lng}, '${claveEscapada}'); 
-                    document.getElementById('search-results').style.display='none';
-                    document.getElementById('map-search-input').value='${claveEscapada}';" 
-           ontouchstart="window.zoomAPlaza(${lat}, ${lng}, '${claveEscapada}'); 
-                        document.getElementById('search-results').style.display='none';
-                        document.getElementById('map-search-input').value='${claveEscapada}';"
+        <button type="button"
+           data-action="search-select"
+           data-lat="${lat}" data-lng="${lng}" data-clave="${claveEscapada}"
            class="search-result-item">
             <div class="search-result-icon">${icono}</div>
             <div class="search-result-content">
@@ -255,7 +309,7 @@ document.addEventListener("DOMContentLoaded", function() {
                 <div class="search-result-nombre">${nombreHTML}</div>
                 <div class="search-result-ubicacion">${ubicacion}</div>
             </div>
-        </a>
+        </button>
         `;
     }
 
@@ -273,7 +327,7 @@ document.addEventListener("DOMContentLoaded", function() {
         const userLat = userLocation ? userLocation.lat : null;
         const userLng = userLocation ? userLocation.lon : null;
         
-        // CORRECCIÓN: Usar <a> con eventos táctiles para plazas cercanas
+        // FIX: data-* attributes, eventos adjuntados después
         return `
         <div class="gps-item">
             <div class="gps-item-header">
@@ -284,36 +338,85 @@ document.addEventListener("DOMContentLoaded", function() {
             <div class="gps-item-nombre">${nombreHTML}</div>
             
             <div class="gps-buttons-grid">
-                <a href="javascript:void(0)" 
-                   onclick="window.zoomAPlaza(${lat}, ${lng}, '${claveEscapada}')" 
-                   ontouchstart="window.zoomAPlaza(${lat}, ${lng}, '${claveEscapada}')"
+                <button type="button"
+                   data-action="zoom" data-lat="${lat}" data-lng="${lng}" data-clave="${claveEscapada}"
                    class="btn-map-popup btn-map-popup-zoom">
                     Ver en Mapa
-                </a>
-                <a href="javascript:void(0)" 
-                   onclick="window.navigationContext.cameFromMap = true; window.irADetallePlaza('${claveEscapada}')" 
-                   ontouchstart="window.navigationContext.cameFromMap = true; window.irADetallePlaza('${claveEscapada}')"
+                </button>
+                <button type="button"
+                   data-action="detalle" data-clave="${claveEscapada}"
                    class="btn-map-popup btn-map-popup-details">
                     Detalles
-                </a>
+                </button>
             </div>
             
             <div class="route-buttons-grid">
-                <a href="javascript:void(0)" 
-                   onclick="window.mostrarOpcionesNavegacion(${lat}, ${lng}, '${claveEscapada}', false)" 
-                   ontouchstart="window.mostrarOpcionesNavegacion(${lat}, ${lng}, '${claveEscapada}', false)"
+                <button type="button"
+                   data-action="maps" data-lat="${lat}" data-lng="${lng}" data-clave="${claveEscapada}"
                    class="btn-map-popup btn-map-popup-gmaps">
                     🗺️ Ver en Maps
-                </a>
-                <a href="javascript:void(0)" 
-                   onclick="window.solicitarUbicacionParaRuta(${lat}, ${lng}, '${claveEscapada}', ${userLat}, ${userLng})" 
-                   ontouchstart="window.solicitarUbicacionParaRuta(${lat}, ${lng}, '${claveEscapada}', ${userLat}, ${userLng})"
+                </button>
+                <button type="button"
+                   data-action="ruta-con-origen"
+                   data-lat="${lat}" data-lng="${lng}" data-clave="${claveEscapada}"
+                   data-user-lat="${userLat}" data-user-lng="${userLng}"
                    class="btn-map-popup btn-map-popup-route">
                     🚗 Cómo Llegar
-                </a>
+                </button>
             </div>
         </div>
         `;
+    }
+
+    // FIX: Función unificada para adjuntar eventos a containers con data-action
+    function aplicarEventosContainer(container) {
+        if (!container) return;
+        
+        const buttons = container.querySelectorAll('[data-action]');
+        buttons.forEach(btn => {
+            const action = btn.dataset.action;
+            
+            addTapListener(btn, function() {
+                const lat = parseFloat(btn.dataset.lat);
+                const lng = parseFloat(btn.dataset.lng);
+                const clave = btn.dataset.clave;
+                
+                switch(action) {
+                    case 'detalle':
+                        window.navigationContext.cameFromMap = true;
+                        window.irADetallePlaza(clave);
+                        break;
+                    case 'zoom':
+                        window.zoomAPlaza(lat, lng, clave);
+                        document.getElementById('search-results') && 
+                            (document.getElementById('search-results').style.display = 'none');
+                        if (document.getElementById('map-search-input'))
+                            document.getElementById('map-search-input').value = clave;
+                        break;
+                    case 'maps':
+                        window.mostrarOpcionesNavegacion(lat, lng, clave, false);
+                        break;
+                    case 'ruta':
+                        window.solicitarUbicacionParaRuta(lat, lng, clave);
+                        break;
+                    case 'ruta-con-origen':
+                        const uLat = parseFloat(btn.dataset.userLat);
+                        const uLng = parseFloat(btn.dataset.userLng);
+                        window.solicitarUbicacionParaRuta(lat, lng, clave,
+                            isNaN(uLat) ? null : uLat,
+                            isNaN(uLng) ? null : uLng
+                        );
+                        break;
+                    case 'search-select':
+                        window.zoomAPlaza(lat, lng, clave);
+                        const sr = document.getElementById('search-results');
+                        if (sr) sr.style.display = 'none';
+                        const si = document.getElementById('map-search-input');
+                        if (si) si.value = clave;
+                        break;
+                }
+            });
+        });
     }
 
     // =========================================================
@@ -352,7 +455,8 @@ document.addEventListener("DOMContentLoaded", function() {
     }
 
     // =========================================================
-    // 1. INICIALIZACIÓN DEL MAPA TURBO (OPTIMIZADA PARA MÓVILES)
+    // FIX #4: INICIALIZACIÓN DEL MAPA SIN flyTo AGRESIVO
+    // preferCanvas y animaciones controladas para no congelar móvil
     // =========================================================
     function initMap() {
         if (typeof L === 'undefined') {
@@ -373,31 +477,39 @@ document.addEventListener("DOMContentLoaded", function() {
             attribution: '© Esri', maxZoom: 18
         });
 
-        // 1. OPTIMIZACIÓN CANVAS (CRÍTICO PARA MÓVILES)
         mapInstance = L.map('map', {
             center: [23.6345, -102.5528],
             zoom: 5,
             layers: [calle],
             zoomControl: false,
-            preferCanvas: true,  
-            markerZoomAnimation: false 
+            preferCanvas: true,
+            // FIX #4: Deshabilitar animaciones en móvil para evitar congelamiento
+            fadeAnimation: !L.Browser.mobile,
+            zoomAnimation: !L.Browser.mobile,
+            markerZoomAnimation: false,
+            // FIX: tap:false evita el handler interno de Leaflet que
+            // duplica eventos en iOS causando doble disparo
+            tap: false
         });
         
-        // Agregar controles de zoom manualmente abajo a la derecha para móviles
         L.control.zoom({ position: 'bottomright' }).addTo(mapInstance);
+
+        // Registrar última interacción manual para no interferir con live tracking
+        mapInstance.on('dragstart zoomstart', function() {
+            lastManualInteraction = Date.now();
+        });
 
         configurarGestosParaMoviles(mapInstance);
         L.control.layers({ "Mapa": calle, "Satélite": satelite }).addTo(mapInstance);
 
-        // 2. OPTIMIZACIÓN CLUSTERS PARA CARGA MASIVA
         markersGroup = L.markerClusterGroup({ 
             disableClusteringAtZoom: 16,
-            spiderfyOnMaxZoom: true, // 
-            maxClusterRadius: 70,     // Agrupa más agresivamente
+            spiderfyOnMaxZoom: true,
+            maxClusterRadius: 70,
             chunkedLoading: true,
-            chunkInterval: 200,       // Tiempos ajustados para móviles
+            chunkInterval: 200,
             chunkDelay: 50,
-            showCoverageOnHover: false // Reduce procesamiento
+            showCoverageOnHover: false
         });
 
         mapInstance.addLayer(markersGroup);
@@ -406,17 +518,12 @@ document.addEventListener("DOMContentLoaded", function() {
         setupBackButtonInterceptor();
         agregarResetMapButton();
         agregarControlLiveTracking(mapInstance);
-
-        // --- CORRECCIÓN: CARGAR CONTROLES INMEDIATAMENTE ---
         agregarControlesInmediatos(mapInstance);
         
-        // Cargar datos en segundo plano
         gestionarDatosMapa();
     }
 
-    // Nueva función para forzar la aparición de botones
     function agregarControlesInmediatos(map) {
-        // 1. Botón de Plazas Cercanas (GPS)
         const GpsControl = L.Control.extend({
             options: { position: 'topleft' },
             onAdd: function() {
@@ -424,25 +531,18 @@ document.addEventListener("DOMContentLoaded", function() {
                 container.innerHTML = '<span class="gps-icon">🧭</span> <span class="gps-text">Cercanas</span>';
                 container.style.cursor = 'pointer';
                 
-                // CORRECCIÓN: Agregar eventos táctiles al control
-                container.onclick = function(e) {
-                    L.DomEvent.stopPropagation(e);
-                    L.DomEvent.preventDefault(e);
+                // FIX: usar addTapListener en lugar de duplicar click+touchstart
+                addTapListener(container, function() {
                     mostrarModalConfirmacionGPS();
-                };
+                });
                 
-                container.ontouchstart = function(e) {
-                    L.DomEvent.stopPropagation(e);
-                    L.DomEvent.preventDefault(e);
-                    mostrarModalConfirmacionGPS();
-                };
+                // Prevenir que Leaflet intercepte el evento
+                L.DomEvent.disableClickPropagation(container);
                 
                 return container;
             }
         });
         map.addControl(new GpsControl());
-
-        // 2. Buscador
         agregarBuscador(map);
     }
 
@@ -464,9 +564,9 @@ document.addEventListener("DOMContentLoaded", function() {
                 container.title = "Bloquear/Desbloquear desplazamiento del mapa";
                 container.style.marginTop = '90px';
                 
-                container.onclick = function(e) {
-                    L.DomEvent.stopPropagation(e);
-                    L.DomEvent.preventDefault(e);
+                L.DomEvent.disableClickPropagation(container);
+                
+                addTapListener(container, function() {
                     mapLocked = !mapLocked;
                     
                     if (mapLocked) {
@@ -488,53 +588,27 @@ document.addEventListener("DOMContentLoaded", function() {
                     if (lockTimeout) clearTimeout(lockTimeout);
                     if (mapLocked) {
                         lockTimeout = setTimeout(() => {
-                            if (mapLocked) container.click();
+                            if (mapLocked) {
+                                mapLocked = false;
+                                map.dragging.enable();
+                                map.touchZoom.enable();
+                                map.doubleClickZoom.enable();
+                                container.innerHTML = '<span class="lock-icon">🔒</span><span class="lock-text">Scroll</span>';
+                                container.classList.remove('control-active');
+                            }
                         }, 30000);
                     }
-                };
-                
-                // CORRECCIÓN: Agregar evento táctil
-                container.ontouchstart = function(e) {
-                    L.DomEvent.stopPropagation(e);
-                    L.DomEvent.preventDefault(e);
-                    this.click();
-                };
+                });
                 
                 return container;
             }
         });
         
         map.addControl(new lockControl());
-        
-        let scrollStart = 0;
-        
-        map.getContainer().addEventListener('touchstart', function(e) {
-            if (e.touches.length === 1) {
-                scrollStart = e.touches[0].clientY;
-            }
-        }, { passive: true });
-        
-        map.getContainer().addEventListener('touchmove', function(e) {
-            if (e.touches.length === 1 && !mapLocked) {
-                const currentY = e.touches[0].clientY;
-                const diff = Math.abs(currentY - scrollStart);
-                
-                if (diff > 50 && e.cancelable) {
-                    const hint = document.createElement('div');
-                    hint.className = 'lock-hint';
-                    hint.innerHTML = '🔒 Toca el candado para bloquear scroll';
-                    map.getContainer().appendChild(hint);
-                    
-                    setTimeout(() => {
-                        if (hint.parentNode) hint.remove();
-                    }, 3000);
-                }
-            }
-        }, { passive: true });
     }
 
     // =========================================================
-    // BUSCADOR INTEGRADO (CON CORRECCIONES PARA MÓVILES)
+    // BUSCADOR INTEGRADO
     // =========================================================
     function agregarBuscador(map) {
         const SearchControl = L.Control.extend({
@@ -547,7 +621,7 @@ document.addEventListener("DOMContentLoaded", function() {
 
                 container.innerHTML = `
                     <input type="text" id="map-search-input" class="search-input" 
-                           placeholder="Buscar por clave (I-31-009-02) o nombre...">
+                           placeholder="Buscar por clave o nombre...">
                     <div id="search-results" class="search-results" style="display: none;"></div>
                 `;
                 
@@ -570,7 +644,8 @@ document.addEventListener("DOMContentLoaded", function() {
                             limite: 15
                         });
                         
-                        const response = await fetch(`${ENDPOINT_MAPA_SEGURO}?${params}`);
+                        // FIX #2: Usar fetchConTimeout
+                        const response = await fetchConTimeout(`${ENDPOINT_MAPA_SEGURO}?${params}`);
                         const data = await response.json();
                         
                         if (data.status === 'success') {
@@ -604,13 +679,8 @@ document.addEventListener("DOMContentLoaded", function() {
                     resultsDiv.innerHTML = resultados.map(p => generarResultadoBusquedaHTML(p)).join('');
                     resultsDiv.style.display = 'block';
                     
-                    // CORRECCIÓN: Aplicar prevención de propagación en resultados
-                    if (window.innerWidth <= 768) {
-                        const resultItems = resultsDiv.querySelectorAll('.search-result-item');
-                        resultItems.forEach(item => {
-                            L.DomEvent.disableClickPropagation(item);
-                        });
-                    }
+                    // FIX: Adjuntar eventos después de que el HTML está en el DOM
+                    aplicarEventosContainer(resultsDiv);
                 }
 
                 function limpiarCacheViejo() {
@@ -683,21 +753,13 @@ document.addEventListener("DOMContentLoaded", function() {
                     }, 300);
                 });
 
-                // CORRECCIÓN: Usar eventos táctiles en móviles
-                if (window.innerWidth <= 768) {
-                    input.addEventListener('focus', function() {
-                        resultsDiv.style.display = 'block';
-                    });
-                }
-
                 document.addEventListener('click', function(e) {
                     if (!container.contains(e.target)) {
                         resultsDiv.style.display = 'none';
                     }
                 });
 
-                // CORRECCIÓN: También cerrar en toque fuera
-                document.addEventListener('touchstart', function(e) {
+                document.addEventListener('touchend', function(e) {
                     if (!container.contains(e.target)) {
                         resultsDiv.style.display = 'none';
                     }
@@ -711,7 +773,7 @@ document.addEventListener("DOMContentLoaded", function() {
     }
 
     // =========================================================
-    // SEGUIMIENTO EN VIVO (CON CORRECCIONES TÁCTILES)
+    // SEGUIMIENTO EN VIVO
     // =========================================================
     function agregarControlLiveTracking(map) {
         const LiveTrackingControl = L.Control.extend({
@@ -723,18 +785,8 @@ document.addEventListener("DOMContentLoaded", function() {
                 container.title = "Activar/Desactivar seguimiento en vivo de ubicación";
                 container.style.marginTop = '50px';
                 
-                container.onclick = function(e) {
-                    L.DomEvent.stopPropagation(e);
-                    L.DomEvent.preventDefault(e);
-                    toggleLiveTracking();
-                };
-                
-                // CORRECCIÓN: Agregar evento táctil
-                container.ontouchstart = function(e) {
-                    L.DomEvent.stopPropagation(e);
-                    L.DomEvent.preventDefault(e);
-                    toggleLiveTracking();
-                };
+                L.DomEvent.disableClickPropagation(container);
+                addTapListener(container, toggleLiveTracking);
                 
                 return container;
             }
@@ -771,11 +823,18 @@ document.addEventListener("DOMContentLoaded", function() {
                 actualizarMarcadorUsuario(latitude, longitude, accuracy);
                 
                 if (!lastManualInteraction || (Date.now() - lastManualInteraction > 3000)) {
-                    mapInstance.panTo([latitude, longitude], {
-                        animate: true,
-                        duration: 1,
-                        easeLinearity: 0.25
-                    });
+                    // FIX #4: setView en lugar de panTo en móvil para reducir carga
+                    if (L.Browser.mobile) {
+                        mapInstance.setView([latitude, longitude], mapInstance.getZoom(), {
+                            animate: false
+                        });
+                    } else {
+                        mapInstance.panTo([latitude, longitude], {
+                            animate: true,
+                            duration: 1,
+                            easeLinearity: 0.25
+                        });
+                    }
                 }
                 
             }, (error) => {
@@ -825,7 +884,7 @@ document.addEventListener("DOMContentLoaded", function() {
     }
 
     // =========================================================
-    // GPS Y CERCANÍA (CON CORRECCIONES TÁCTILES)
+    // GPS Y CERCANÍA
     // =========================================================
     function agregarControlGPS(map) {
         const GpsControl = L.Control.extend({
@@ -836,18 +895,8 @@ document.addEventListener("DOMContentLoaded", function() {
                 container.innerHTML = '<span class="gps-icon">🧭</span> <span class="gps-text">Plazas Cercanas</span>';
                 container.title = "Buscar las 5 plazas más cercanas a mi ubicación";
                 
-                container.onclick = function(e) {
-                    L.DomEvent.stopPropagation(e);
-                    L.DomEvent.preventDefault(e);
-                    mostrarModalConfirmacionGPS();
-                };
-                
-                // CORRECCIÓN: Agregar evento táctil
-                container.ontouchstart = function(e) {
-                    L.DomEvent.stopPropagation(e);
-                    L.DomEvent.preventDefault(e);
-                    mostrarModalConfirmacionGPS();
-                };
+                L.DomEvent.disableClickPropagation(container);
+                addTapListener(container, mostrarModalConfirmacionGPS);
                 
                 return container;
             }
@@ -861,7 +910,7 @@ document.addEventListener("DOMContentLoaded", function() {
     }
 
     // =========================================================
-    // FUNCIONES DE UBICACIÓN (OPTIMIZADA PARA MÓVILES)
+    // FUNCIONES DE UBICACIÓN
     // =========================================================
     function obtenerUbicacionUsuario(mostrarEnMapa = true) {
         return new Promise((resolve, reject) => {
@@ -870,11 +919,10 @@ document.addEventListener("DOMContentLoaded", function() {
                 return;
             }
 
-            // OPTIMIZACIÓN: Relaja la precisión para obtener ubicación más rápido
             const options = {
-                enableHighAccuracy: true, // Intenta ser preciso...
-                timeout: 7000,            // ...pero ríndete a los 7 segundos (antes era 10s)
-                maximumAge: 300000        // Acepta una ubicación de hace 5 minutos (caché)
+                enableHighAccuracy: true,
+                timeout: 7000,
+                maximumAge: 300000
             };
 
             navigator.geolocation.getCurrentPosition(
@@ -913,7 +961,7 @@ document.addEventListener("DOMContentLoaded", function() {
                                 <small>Precisión: ${Math.round(accuracy)} metros</small><br>
                                 <small>${new Date().toLocaleTimeString()}</small>
                             </div>
-                        `).openPopup();
+                        `);
                         
                         if (accuracy < 1000) {
                             userAccuracyCircle = L.circle([userLat, userLon], {
@@ -926,7 +974,12 @@ document.addEventListener("DOMContentLoaded", function() {
                             }).addTo(mapInstance);
                         }
                         
-                        mapInstance.setView([userLat, userLon], 15);
+                        // FIX #4: setView sin animación en móvil
+                        if (L.Browser.mobile) {
+                            mapInstance.setView([userLat, userLon], 15, { animate: false });
+                        } else {
+                            mapInstance.setView([userLat, userLon], 15);
+                        }
                     }
                     
                     resolve(userLocation);
@@ -953,6 +1006,7 @@ document.addEventListener("DOMContentLoaded", function() {
         });
     }
 
+    // FIX: Modal creado con addTapListener en lugar de eventos duplicados
     function mostrarModalConfirmacionGPS() {
         const overlay = document.createElement('div');
         overlay.className = 'gps-confirm-overlay';
@@ -978,54 +1032,31 @@ document.addEventListener("DOMContentLoaded", function() {
         overlay.appendChild(modal);
         document.getElementById('map').appendChild(overlay);
         
-        // CORRECCIÓN: Agregar eventos táctiles a los botones del modal
         const yesBtn = document.getElementById('gps-confirm-yes');
         const noBtn = document.getElementById('gps-confirm-no');
         
-        yesBtn.addEventListener('click', function() {
-            document.getElementById('map').removeChild(overlay);
+        addTapListener(yesBtn, function() {
+            overlay.remove();
             buscarCercanos();
         });
         
-        yesBtn.addEventListener('touchstart', function(e) {
-            L.DomEvent.stopPropagation(e);
-            L.DomEvent.preventDefault(e);
-            document.getElementById('map').removeChild(overlay);
-            buscarCercanos();
-        }, { passive: false });
-        
-        noBtn.addEventListener('click', function() {
-            document.getElementById('map').removeChild(overlay);
+        addTapListener(noBtn, function() {
+            overlay.remove();
         });
         
-        noBtn.addEventListener('touchstart', function(e) {
-            L.DomEvent.stopPropagation(e);
-            L.DomEvent.preventDefault(e);
-            document.getElementById('map').removeChild(overlay);
-        }, { passive: false });
-        
-        overlay.addEventListener('click', function(e) {
-            if (e.target === overlay) {
-                document.getElementById('map').removeChild(overlay);
-            }
+        addTapListener(overlay, function(e) {
+            if (e.target === overlay) overlay.remove();
         });
-        
-        overlay.addEventListener('touchstart', function(e) {
-            if (e.target === overlay) {
-                document.getElementById('map').removeChild(overlay);
-            }
-        }, { passive: true });
     }
 
     // =========================================================
-    // MAPAS EXTERNOS (CORREGIDO Y OPTIMIZADO)
+    // MAPAS EXTERNOS
     // =========================================================
     window.abrirGoogleMaps = function(lat, lon, nombre) {
         if (!lat || !lon) {
             alert("No hay coordenadas disponibles para esta plaza.");
             return;
         }
-        // URL universal de Google Maps
         const url = `https://www.google.com/maps/search/?api=1&query=${lat},${lon}`;
         window.open(url, '_blank');
     };
@@ -1035,7 +1066,6 @@ document.addEventListener("DOMContentLoaded", function() {
             alert("No hay coordenadas disponibles para esta plaza.");
             return;
         }
-        // URL universal de Waze
         const url = `https://www.waze.com/ul?ll=${lat},${lon}&navigate=yes`;
         window.open(url, '_blank');
     };
@@ -1045,9 +1075,7 @@ document.addEventListener("DOMContentLoaded", function() {
             alert("No hay coordenadas suficientes para crear la ruta.");
             return;
         }
-        // URL universal de Google Maps para direcciones
         const url = `https://www.google.com/maps/dir/?api=1&origin=${originLat},${originLon}&destination=${destLat},${destLon}&travelmode=driving`;
-        
         window.open(url, '_blank');
         mostrarNotificacionRuta(originLat, originLon, destLat, destLon, 'Google Maps');
     };
@@ -1057,9 +1085,7 @@ document.addEventListener("DOMContentLoaded", function() {
             alert("No hay coordenadas de destino.");
             return;
         }
-        // Waze toma la ubicación actual automáticamente
         const url = `https://www.waze.com/ul?ll=${destLat},${destLon}&navigate=yes`;
-        
         window.open(url, '_blank');
         mostrarNotificacionRuta(originLat, originLon, destLat, destLon, 'Waze');
     };
@@ -1097,18 +1123,11 @@ document.addEventListener("DOMContentLoaded", function() {
         overlay.appendChild(modal);
         document.body.appendChild(overlay);
         
-        // CORRECCIÓN: Agregar eventos táctiles a los botones
-        const gmapsBtn = document.getElementById('btn-gmaps');
-        const wazeBtn = document.getElementById('btn-waze');
-        const cancelBtn = document.getElementById('btn-cancelar');
-        
         function removeOverlay() {
-            if (overlay.parentNode) {
-                document.body.removeChild(overlay);
-            }
+            if (overlay.parentNode) overlay.parentNode.removeChild(overlay);
         }
         
-        gmapsBtn.addEventListener('click', function() {
+        addTapListener(document.getElementById('btn-gmaps'), function() {
             removeOverlay();
             if (esRuta && userLat && userLon) {
                 window.crearRutaGoogleMaps(userLat, userLon, lat, lon, nombre);
@@ -1117,59 +1136,20 @@ document.addEventListener("DOMContentLoaded", function() {
             }
         });
         
-        gmapsBtn.addEventListener('touchstart', function(e) {
-            L.DomEvent.stopPropagation(e);
-            L.DomEvent.preventDefault(e);
-            removeOverlay();
-            if (esRuta && userLat && userLon) {
-                window.crearRutaGoogleMaps(userLat, userLon, lat, lon, nombre);
-            } else {
-                window.abrirGoogleMaps(lat, lon, nombre);
-            }
-        }, { passive: false });
-        
-        wazeBtn.addEventListener('click', function() {
-            removeOverlay();
-            if (esRuta) {
-                // Waze usa GPS propio
-                window.crearRutaWaze(userLat, userLon, lat, lon, nombre);
-            } else {
-                window.abrirWaze(lat, lon, nombre);
-            }
-        });
-        
-        wazeBtn.addEventListener('touchstart', function(e) {
-            L.DomEvent.stopPropagation(e);
-            L.DomEvent.preventDefault(e);
+        addTapListener(document.getElementById('btn-waze'), function() {
             removeOverlay();
             if (esRuta) {
                 window.crearRutaWaze(userLat, userLon, lat, lon, nombre);
             } else {
                 window.abrirWaze(lat, lon, nombre);
             }
-        }, { passive: false });
-        
-        cancelBtn.addEventListener('click', function() {
-            removeOverlay();
         });
         
-        cancelBtn.addEventListener('touchstart', function(e) {
-            L.DomEvent.stopPropagation(e);
-            L.DomEvent.preventDefault(e);
-            removeOverlay();
-        }, { passive: false });
+        addTapListener(document.getElementById('btn-cancelar'), removeOverlay);
         
-        overlay.addEventListener('click', function(e) {
-            if (e.target === overlay) {
-                removeOverlay();
-            }
+        addTapListener(overlay, function(e) {
+            if (e.target === overlay) removeOverlay();
         });
-        
-        overlay.addEventListener('touchstart', function(e) {
-            if (e.target === overlay) {
-                removeOverlay();
-            }
-        }, { passive: true });
     };
 
     function mostrarNotificacionRuta(originLat, originLon, destLat, destLon, appNombre) {
@@ -1177,30 +1157,22 @@ document.addEventListener("DOMContentLoaded", function() {
         
         const notificacion = document.createElement('div');
         notificacion.className = 'route-notification';
-        
         notificacion.innerHTML = `
             <div class="route-notification-content">
                 <div class="route-notification-icon">🚗</div>
                 <div class="route-notification-text">
                     <strong>Ruta creada en ${appNombre}</strong><br>
-                    <small>Distancia aprox: ${distancia.toFixed(1)} km</small><br>
-                    <small>Se abrió en una nueva pestaña.</small>
+                    <small>Distancia aprox: ${distancia.toFixed(1)} km</small>
                 </div>
             </div>
-            <button onclick="this.parentElement.remove()" class="route-notification-close" type="button">
-                ×
-            </button>
+            <button class="route-notification-close" type="button">×</button>
         `;
         
         document.body.appendChild(notificacion);
         
-        // CORRECCIÓN: Agregar evento táctil al botón de cerrar
-        const closeBtn = notificacion.querySelector('.route-notification-close');
-        closeBtn.addEventListener('touchstart', function(e) {
-            L.DomEvent.stopPropagation(e);
-            L.DomEvent.preventDefault(e);
-            if (notificacion.parentNode) notificacion.parentNode.removeChild(notificacion);
-        }, { passive: false });
+        addTapListener(notificacion.querySelector('.route-notification-close'), function() {
+            if (notificacion.parentNode) notificacion.remove();
+        });
         
         setTimeout(() => {
             if (notificacion.parentNode) notificacion.remove();
@@ -1208,22 +1180,20 @@ document.addEventListener("DOMContentLoaded", function() {
     }
 
     // =========================================================
-    // FUNCIONES DE NAVEGACIÓN (CON CORRECCIONES TÁCTILES)
+    // FIX #4b: zoomAPlaza sin flyTo agresivo en móvil
     // =========================================================
     window.zoomAPlaza = async function(lat, lon, clave) {
-        if (!mapInstance) {
-            console.error("Mapa no inicializado");
-            return;
-        }
+        if (!mapInstance) return;
         
         try {
             lastManualInteraction = Date.now();
             
-            // 🔥 CENTRADO AUTOMÁTICO EN LA PANTALLA
-            mapInstance.flyTo([lat, lon], 16, {
-                animate: true,
-                duration: 1.0 // Animación suave de 1 segundo
-            });
+            // FIX: En móvil usar setView con animate:false para evitar congelamiento
+            if (L.Browser.mobile) {
+                mapInstance.setView([lat, lon], 16, { animate: false });
+            } else {
+                mapInstance.flyTo([lat, lon], 16, { animate: true, duration: 1.0 });
+            }
             
             if (userLocation) {
                 if (currentPolyline) mapInstance.removeLayer(currentPolyline);
@@ -1236,7 +1206,8 @@ document.addEventListener("DOMContentLoaded", function() {
                         destino_lng: lon
                     });
                     
-                    const response = await fetch(`${ENDPOINT_LINEA_RUTA}?${params}`);
+                    // FIX #2: fetchConTimeout para no congelar esperando respuesta
+                    const response = await fetchConTimeout(`${ENDPOINT_LINEA_RUTA}?${params}`, {}, 6000);
                     const data = await response.json();
                     
                     if (data.status === 'success') {
@@ -1246,22 +1217,13 @@ document.addEventListener("DOMContentLoaded", function() {
                             opacity: data.estilo_linea.opacity,
                             dashArray: data.estilo_linea.dashArray
                         }).addTo(mapInstance);
-                        
-                        currentPolyline.bindPopup(`
-                            <div class="route-popup">
-                                <strong>📍 Ruta a ${clave}</strong><br>
-                                <small>Distancia: ${data.distancia_km} km</small><br>
-                                <small>Desde tu ubicación actual</small>
-                            </div>
-                        `).openPopup();
                     }
                 } catch (error) {
-                    console.error("Error obteniendo línea de ruta:", error);
+                    // Fallback silencioso: línea recta
                     const latlngs = [
                         [userLocation.lat, userLocation.lon],
                         [lat, lon]
                     ];
-
                     currentPolyline = L.polyline(latlngs, {
                         color: 'red',
                         weight: 3,
@@ -1271,26 +1233,17 @@ document.addEventListener("DOMContentLoaded", function() {
                 }
             }
             
+            // Abrir popup del marcador correspondiente
+            const delay = L.Browser.mobile ? 100 : 1100;
             setTimeout(() => {
                 markersGroup.getLayers().forEach(layer => {
-                    if (layer.getLatLng().lat === lat && layer.getLatLng().lng === lon) {
+                    const ll = layer.getLatLng();
+                    if (Math.abs(ll.lat - lat) < 0.0001 && Math.abs(ll.lng - lon) < 0.0001) {
                         layer.openPopup();
-                        
-                        const icon = layer.getElement();
-                        if (icon) {
-                            icon.style.animation = 'pulse 0.5s 3';
-                            icon.style.boxShadow = '0 0 0 5px rgba(0,123,255,0.3)';
-                            
-                            setTimeout(() => {
-                                icon.style.animation = '';
-                                icon.style.boxShadow = '';
-                            }, 1500);
-                        }
                     }
                 });
-            }, 1100); // Esperar a que termine flyTo
+            }, delay);
             
-            // Cerrar modal de cercanos si existe (versión móvil)
             if (window.innerWidth < 600) {
                 cerrarModalGPS();
             }
@@ -1308,12 +1261,13 @@ document.addEventListener("DOMContentLoaded", function() {
                 lng: location.lon
             });
             
-            const response = await fetch(`${ENDPOINT_UBICAR_CERCANA}?${params}`);
+            // FIX #2: fetchConTimeout
+            const response = await fetchConTimeout(`${ENDPOINT_UBICAR_CERCANA}?${params}`);
             const data = await response.json();
             
             if (data.status === 'success') {
                 const plaza = data.plaza_mas_cercana;
-                mostrarNotificacion(`Plaza más cercana encontrada: ${plaza.clave} (${plaza.distancia_formateada})`);
+                mostrarNotificacion(`Plaza más cercana: ${plaza.clave} (${plaza.distancia_formateada})`);
                 window.zoomAPlaza(plaza.lat, plaza.lng, plaza.clave);
                 return plaza;
             } else {
@@ -1321,19 +1275,18 @@ document.addEventListener("DOMContentLoaded", function() {
             }
         } catch (error) {
             console.error("Error ubicando plaza más cercana:", error);
-            alert(`Error: ${error}`);
+            mostrarNotificacion(`Error: ${error}`, 'error');
             return null;
         }
     };
 
     // =========================================================
-    // BUSQUEDA CERCANA (CON GESTIÓN DE BOTÓN ATRÁS)
+    // BUSQUEDA CERCANA
     // =========================================================
     async function buscarCercanos() {
         const modal = document.getElementById('gps-results-modal');
         if (!modal) return;
         
-        // 🔥 AGREGAR ESTADO AL HISTORIAL PARA MANEJAR BOTÓN ATRÁS
         window.history.pushState({ modalAbierto: 'gps' }, '', '#gps-results');
         
         modal.style.display = 'block';
@@ -1350,7 +1303,8 @@ document.addEventListener("DOMContentLoaded", function() {
                 limite: 10
             });
             
-            const response = await fetch(`${ENDPOINT_MAPA_SEGURO}?${params}`);
+            // FIX #2: fetchConTimeout
+            const response = await fetchConTimeout(`${ENDPOINT_MAPA_SEGURO}?${params}`, {}, 10000);
             const data = await response.json();
             
             if (data.status === 'success') {
@@ -1362,36 +1316,32 @@ document.addEventListener("DOMContentLoaded", function() {
         } catch (error) {
             console.error("Error obteniendo plazas cercanas:", error);
             modal.innerHTML = `
-                <span class="btn-close-gps" onclick="window.history.back()" ontouchstart="window.history.back()">×</span>
-                <div class="gps-error">
-                    ⚠️ ${error}
-                </div>
+                <button class="btn-close-gps" type="button" id="btn-close-error">×</button>
+                <div class="gps-error">⚠️ ${error}</div>
             `;
+            addTapListener(document.getElementById('btn-close-error'), function() {
+                window.history.back();
+            });
             setTimeout(() => { 
                 if (modal.style.display === 'block') window.history.back(); 
             }, 4000);
         }
     }
 
-    // Función auxiliar para cerrar el modal limpiamente
     function cerrarModalGPS() {
         const modal = document.getElementById('gps-results-modal');
         if (modal) {
             modal.style.display = 'none';
-            // Si estamos en el estado del modal, volvemos atrás
             if (history.state && history.state.modalAbierto === 'gps') {
                 history.back();
             }
         }
     }
 
-    // ESCUCHADOR PARA EL BOTÓN ATRÁS DEL NAVEGADOR
     window.addEventListener('popstate', function(event) {
         const modal = document.getElementById('gps-results-modal');
-        // Si el modal está visible y se presiona atrás, lo ocultamos
         if (modal && modal.style.display === 'block') {
             modal.style.display = 'none';
-            // Prevenir otras acciones si es necesario
         }
     });
 
@@ -1399,19 +1349,16 @@ document.addEventListener("DOMContentLoaded", function() {
         const modal = document.getElementById('gps-results-modal');
         if (!modal) return;
         
-        // Botón de cierre ahora ejecuta history.back() para ser consistente
         let html = `
-            <span class="btn-close-gps" onclick="window.history.back()" ontouchstart="window.history.back()">×</span>
-            <h4 class="gps-title">🏢 Las 5 más cercanas</h4>
+            <button class="btn-close-gps" type="button" id="btn-close-gps-main">×</button>
+            <h4 class="gps-title">🏢 Las más cercanas</h4>
         `;
 
         if (userLocation) {
             html += `
                 <div class="gps-location-info">
                     <span>📍 Ubicación obtenida</span>
-                    <small class="gps-accuracy">
-                        Precisión: ${Math.round(userLocation.accuracy)}m
-                    </small>
+                    <small class="gps-accuracy">Precisión: ${Math.round(userLocation.accuracy)}m</small>
                 </div>
             `;
         }
@@ -1424,13 +1371,14 @@ document.addEventListener("DOMContentLoaded", function() {
 
         modal.innerHTML = html;
         
-        // CORRECCIÓN: Aplicar prevención de propagación en los botones del modal
+        // FIX: Adjuntar eventos después de que el HTML está en el DOM
+        aplicarEventosContainer(modal);
+        
+        addTapListener(document.getElementById('btn-close-gps-main'), function() {
+            window.history.back();
+        });
+        
         if (window.innerWidth <= 768) {
-            const buttons = modal.querySelectorAll('.btn-map-popup');
-            buttons.forEach(button => {
-                L.DomEvent.disableClickPropagation(button);
-            });
-            
             configurarSwipeToClose(modal);
         }
     }
@@ -1446,7 +1394,6 @@ document.addEventListener("DOMContentLoaded", function() {
         modal.addEventListener('touchmove', function(e) {
             currentY = e.touches[0].clientY;
             const diff = currentY - startY;
-            
             if (diff > 0) {
                 modal.style.transform = `translateY(${diff}px)`;
             }
@@ -1454,12 +1401,9 @@ document.addEventListener("DOMContentLoaded", function() {
         
         modal.addEventListener('touchend', function(e) {
             const diff = currentY - startY;
-            const threshold = 100;
-            
-            if (diff > threshold) {
+            if (diff > 100) {
                 modal.classList.add('closing');
                 setTimeout(() => {
-                    // Usar history back para cerrar consistente
                     window.history.back();
                     modal.classList.remove('closing');
                     modal.style.transform = 'translateY(0)';
@@ -1488,7 +1432,8 @@ document.addEventListener("DOMContentLoaded", function() {
             let serverVer = null;
 
             try {
-                const respVer = await fetch('/api/version-coordenadas');
+                // FIX #2: fetchConTimeout para version check
+                const respVer = await fetchConTimeout('/api/version-coordenadas', {}, 5000);
                 if (respVer.ok) {
                     const jsonVer = await respVer.json();
                     serverVer = jsonVer.version;
@@ -1500,7 +1445,7 @@ document.addEventListener("DOMContentLoaded", function() {
                     if (cachedData) usarCache = true;
                 }
             } catch (e) {
-                console.warn("No se pudo verificar versión:", e);
+                console.warn("No se pudo verificar versión (posible cold start):", e);
                 if (cachedData) usarCache = true;
             }
 
@@ -1521,19 +1466,14 @@ document.addEventListener("DOMContentLoaded", function() {
 
             if (loadingText) loadingText.innerText = "Actualizando mapa...";
             
-            const response = await fetch(ENDPOINT_COORDENADAS_SEGURAS);
+            // FIX #2: timeout más generoso para carga inicial (Render cold start)
+            const response = await fetchConTimeout(ENDPOINT_COORDENADAS_SEGURAS, {}, 25000);
             
-            if (!response.ok) {
-                throw new Error(`Error HTTP ${response.status}`);
-            }
+            if (!response.ok) throw new Error(`Error HTTP ${response.status}`);
             
             const data = await response.json();
-
             if (data.status === 'error') throw new Error(data.error);
-
-            if (!data.plazas || !Array.isArray(data.plazas)) {
-                throw new Error("Datos no válidos");
-            }
+            if (!data.plazas || !Array.isArray(data.plazas)) throw new Error("Datos no válidos");
 
             console.log(`⬇️ Datos descargados: ${data.plazas.length} plazas`);
 
@@ -1560,6 +1500,7 @@ document.addEventListener("DOMContentLoaded", function() {
                         datosGlobales = data;
                         procesarPuntosMapa(data);
                         agregarControlesDespuesDeDatos();
+                        mostrarNotificacion('Usando datos guardados (sin conexión)', 'warning');
                         return;
                     }
                 }
@@ -1586,7 +1527,7 @@ document.addEventListener("DOMContentLoaded", function() {
     }
 
     // =========================================================
-    // PROCESAR PUNTOS EN EL MAPA (MODIFICADA CON CORRECCIONES PARA MÓVILES)
+    // PROCESAR PUNTOS EN EL MAPA
     // =========================================================
     function procesarPuntosMapa(datos) {
         if (!mapInstance || !markersGroup) return;
@@ -1627,37 +1568,26 @@ document.addEventListener("DOMContentLoaded", function() {
             }
             
             const popup = L.popup({
-                maxWidth: window.innerWidth <= 768 ? 250 : 300
+                maxWidth: window.innerWidth <= 768 ? 250 : 300,
+                // FIX: autoPan puede causar saltos en móvil
+                autoPan: !L.Browser.mobile
             }).setContent(popupHTML);
             
             marker.bindPopup(popup);
             
-            // CORRECCIÓN: Interceptar apertura del popup para aplicar correcciones
+            // FIX #3b: Adjuntar eventos cuando el popup abre (DOM disponible)
             marker.on('popupopen', function() {
                 const popupElement = this.getPopup().getElement();
                 if (popupElement) {
-                    aplicarCorreccionEventosMoviles(popupElement);
+                    aplicarEventosPopup(popupElement);
                 }
             });
             
+            // FIX #4: En móvil, solo setView sin animación costosa
             marker.on('click', function() {
-                // 🔥 CENTRAR MAPA EN LA PLAZA AL HACER CLIC
-                mapInstance.flyTo(this.getLatLng(), 16, {
-                    animate: true,
-                    duration: 0.5
-                });
-                
-                this.openPopup();
-                lastManualInteraction = Date.now();
-            });
-            
-            // CORRECCIÓN: También responder a toques
-            marker.on('touchstart', function() {
-                mapInstance.flyTo(this.getLatLng(), 16, {
-                    animate: true,
-                    duration: 0.5
-                });
-                
+                if (L.Browser.mobile) {
+                    mapInstance.setView(this.getLatLng(), 16, { animate: false });
+                }
                 this.openPopup();
                 lastManualInteraction = Date.now();
             });
@@ -1671,7 +1601,8 @@ document.addEventListener("DOMContentLoaded", function() {
             const bounds = markersGroup.getBounds();
             if (bounds.isValid()) {
                 mapInstance.fitBounds(bounds, { 
-                    padding: window.innerWidth <= 768 ? [30, 30] : [50, 50] 
+                    padding: window.innerWidth <= 768 ? [30, 30] : [50, 50],
+                    animate: false // FIX: sin animación en carga inicial
                 });
             }
         }
@@ -1693,7 +1624,7 @@ document.addEventListener("DOMContentLoaded", function() {
     }
 
     // =========================================================
-    // NAVEGACIÓN ENTRE VISTAS (CON CORRECCIONES TÁCTILES)
+    // NAVEGACIÓN ENTRE VISTAS
     // =========================================================
     window.irADetallePlaza = function(clave, volverAlMapa = false) {
         try {
@@ -1752,7 +1683,8 @@ document.addEventListener("DOMContentLoaded", function() {
                         if (window.navigationContext.lastMapView) {
                             mapInstance.setView(
                                 window.navigationContext.lastMapView.center,
-                                window.navigationContext.lastMapView.zoom
+                                window.navigationContext.lastMapView.zoom,
+                                { animate: false } // FIX: sin animación al volver
                             );
                         }
                     }
@@ -1776,19 +1708,12 @@ document.addEventListener("DOMContentLoaded", function() {
                 if (mutation.type === 'childList') {
                     const backButton = document.getElementById('back-to-search-button');
                     if (backButton && window.navigationContext.cameFromMap) {
-                        backButton.onclick = function(e) {
+                        // FIX: addTapListener en lugar de onclick + ontouchstart duplicados
+                        addTapListener(backButton, function(e) {
                             e.preventDefault();
                             e.stopPropagation();
                             window.volverAlMapa();
-                            return false;
-                        };
-                        
-                        backButton.ontouchstart = function(e) {
-                            e.preventDefault();
-                            e.stopPropagation();
-                            window.volverAlMapa();
-                            return false;
-                        };
+                        });
                         
                         backButton.innerHTML = '<i class="fa-solid fa-map"></i> Volver al Mapa';
                         backButton.classList.add('back-to-map-button');
@@ -1811,7 +1736,7 @@ document.addEventListener("DOMContentLoaded", function() {
     }
 
     // =========================================================
-    // BOTÓN DE RESTABLECER MAPA (CON CORRECCIONES TÁCTILES)
+    // BOTÓN DE RESTABLECER MAPA
     // =========================================================
     function agregarResetMapButton() {
         if (!document.getElementById('reset-map-button')) {
@@ -1823,9 +1748,9 @@ document.addEventListener("DOMContentLoaded", function() {
             button.style.marginTop = '10px';
             button.type = 'button';
             
-            button.onclick = function() {
+            addTapListener(button, function() {
                 if (mapInstance) {
-                    mapInstance.setView([23.6345, -102.5528], 5);
+                    mapInstance.setView([23.6345, -102.5528], 5, { animate: false });
                     mapInstance.invalidateSize();
                     
                     if (currentPolyline) {
@@ -1843,14 +1768,7 @@ document.addEventListener("DOMContentLoaded", function() {
                     
                     mostrarNotificacion('Mapa restablecido a vista inicial');
                 }
-            };
-            
-            // CORRECCIÓN: Agregar evento táctil
-            button.ontouchstart = function(e) {
-                L.DomEvent.stopPropagation(e);
-                L.DomEvent.preventDefault(e);
-                this.click();
-            };
+            });
             
             setTimeout(() => {
                 const mapContainer = document.querySelector('.leaflet-control-container');
@@ -1896,35 +1814,27 @@ document.addEventListener("DOMContentLoaded", function() {
         notificacion.innerHTML = `
             <div class="notification-icon">${icon}</div>
             <div class="notification-text">${mensaje}</div>
-            <button onclick="this.parentElement.remove()" class="notification-close" type="button">
-                ×
-            </button>
+            <button class="notification-close" type="button">×</button>
         `;
         
         document.body.appendChild(notificacion);
         
-        // CORRECCIÓN: Agregar evento táctil al botón de cerrar
-        const closeBtn = notificacion.querySelector('.notification-close');
-        closeBtn.addEventListener('touchstart', function(e) {
-            L.DomEvent.stopPropagation(e);
-            L.DomEvent.preventDefault(e);
-            if (notificacion.parentNode) notificacion.parentNode.removeChild(notificacion);
-        }, { passive: false });
+        addTapListener(notificacion.querySelector('.notification-close'), function() {
+            if (notificacion.parentNode) notificacion.remove();
+        });
         
         setTimeout(() => {
-            if (notificacion.parentNode) document.body.removeChild(notificacion);
+            if (notificacion.parentNode) notificacion.remove();
         }, 3000);
     }
 
     // =========================================================
-    // LÓGICA DE RUTA MEJORADA (CON CORRECCIONES TÁCTILES)
+    // LÓGICA DE RUTA
     // =========================================================
     window.solicitarUbicacionParaRuta = function(destLat, destLon, destinoNombre, userLat = null, userLon = null) {
-        // Si ya tenemos ubicación, vamos directo
         if (userLat && userLon) {
             window.mostrarOpcionesNavegacion(destLat, destLon, destinoNombre, true, userLat, userLon);
         } else {
-            // Si no, pedimos permiso con el modal
             mostrarModalConfirmacionRuta(destLat, destLon, destinoNombre);
         }
     };
@@ -1937,7 +1847,7 @@ document.addEventListener("DOMContentLoaded", function() {
         modal.className = 'gps-confirm-modal';
         modal.innerHTML = `
             <h3>🚗 Crear Ruta</h3>
-            <p>Necesitamos tu ubicación actual para trazar la ruta hacia <strong>${destinoNombre}</strong>.</p>
+            <p>Necesitamos tu ubicación actual para trazar la ruta hacia <strong>${escapeHTML(destinoNombre)}</strong>.</p>
             <div class="gps-confirm-buttons">
                 <button class="gps-confirm-btn gps-confirm-yes" id="ruta-confirm-yes" type="button">
                     📍 Obtener Ubicación y Crear Ruta
@@ -1949,14 +1859,10 @@ document.addEventListener("DOMContentLoaded", function() {
         `;
         
         overlay.appendChild(modal);
-        document.body.appendChild(overlay); // Usar body es más seguro que map
-        
-        // CORRECCIÓN: Agregar eventos táctiles a los botones del modal de ruta
-        const yesBtn = document.getElementById('ruta-confirm-yes');
-        const noBtn = document.getElementById('ruta-confirm-no');
+        document.body.appendChild(overlay);
         
         function handleYes() {
-            document.body.removeChild(overlay);
+            overlay.remove();
             mostrarLoaderRuta("Obteniendo tu ubicación GPS...");
             
             obtenerUbicacionUsuario(false)
@@ -1966,39 +1872,17 @@ document.addEventListener("DOMContentLoaded", function() {
                 })
                 .catch(error => {
                     ocultarLoaderRuta();
-                    alert(`⚠️ No pudimos obtener tu ubicación: ${error}`);
+                    mostrarNotificacion(`⚠️ No se pudo obtener ubicación: ${error}`, 'error');
                 });
         }
         
-        function handleNo() {
-            document.body.removeChild(overlay);
-        }
-        
-        yesBtn.addEventListener('click', handleYes);
-        yesBtn.addEventListener('touchstart', function(e) {
-            L.DomEvent.stopPropagation(e);
-            L.DomEvent.preventDefault(e);
-            handleYes();
-        }, { passive: false });
-        
-        noBtn.addEventListener('click', handleNo);
-        noBtn.addEventListener('touchstart', function(e) {
-            L.DomEvent.stopPropagation(e);
-            L.DomEvent.preventDefault(e);
-            handleNo();
-        }, { passive: false });
-        
-        overlay.addEventListener('click', function(e) {
-            if (e.target === overlay) {
-                document.body.removeChild(overlay);
-            }
+        addTapListener(document.getElementById('ruta-confirm-yes'), handleYes);
+        addTapListener(document.getElementById('ruta-confirm-no'), function() {
+            overlay.remove();
         });
-        
-        overlay.addEventListener('touchstart', function(e) {
-            if (e.target === overlay) {
-                document.body.removeChild(overlay);
-            }
-        }, { passive: true });
+        addTapListener(overlay, function(e) {
+            if (e.target === overlay) overlay.remove();
+        });
     }
 
     // =========================================================
@@ -2054,6 +1938,6 @@ document.addEventListener("DOMContentLoaded", function() {
         lastClickedPlaza: null
     };
     
-    console.log('✅ Mapa TURBO optimizado para móviles inicializado');
+    console.log('✅ Mapa TURBO v2 (mobile-fixed) inicializado');
     observeViewChanges();
 });
