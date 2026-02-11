@@ -1140,25 +1140,41 @@ document.addEventListener("DOMContentLoaded", function() {
         document.body.appendChild(overlay);
         
         function removeOverlay() {
-            if (overlay.parentNode) overlay.parentNode.removeChild(overlay);
+            if (overlay.parentNode) {
+                // FIX: Agregar animación de salida para feedback visual
+                overlay.style.opacity = '0';
+                setTimeout(() => {
+                    if (overlay.parentNode) overlay.parentNode.removeChild(overlay);
+                }, 100);
+            }
         }
         
         addTapListener(document.getElementById('btn-gmaps'), function() {
-            removeOverlay();
-            if (esRuta && userLat && userLon) {
-                window.crearRutaGoogleMaps(userLat, userLon, lat, lon, nombre);
-            } else {
-                window.abrirGoogleMaps(lat, lon, nombre);
-            }
+            // FIX CRÍTICO: Cerrar modal INMEDIATAMENTE antes de window.open
+            // Si no, la UI queda bloqueada esperando que se cierre el modal
+            if (overlay.parentNode) overlay.parentNode.removeChild(overlay);
+            
+            // Pequeño delay para asegurar que el DOM se actualiza
+            setTimeout(() => {
+                if (esRuta && userLat && userLon) {
+                    window.crearRutaGoogleMaps(userLat, userLon, lat, lon, nombre);
+                } else {
+                    window.abrirGoogleMaps(lat, lon, nombre);
+                }
+            }, 50);
         });
         
         addTapListener(document.getElementById('btn-waze'), function() {
-            removeOverlay();
-            if (esRuta) {
-                window.crearRutaWaze(userLat, userLon, lat, lon, nombre);
-            } else {
-                window.abrirWaze(lat, lon, nombre);
-            }
+            // FIX CRÍTICO: Cerrar modal INMEDIATAMENTE antes de window.open
+            if (overlay.parentNode) overlay.parentNode.removeChild(overlay);
+            
+            setTimeout(() => {
+                if (esRuta) {
+                    window.crearRutaWaze(userLat, userLon, lat, lon, nombre);
+                } else {
+                    window.abrirWaze(lat, lon, nombre);
+                }
+            }, 50);
         });
         
         addTapListener(document.getElementById('btn-cancelar'), removeOverlay);
