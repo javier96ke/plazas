@@ -757,7 +757,14 @@ if COMPARATIVAS_ENGINE_AVAILABLE:
     logging.info("✅ ComparativasEngine v5.1 instanciado")
 else:
     logging.warning("⚠️ ComparativasEngine no disponible")
-    
+
+# ==============================================================================
+# PATCH: Cold Start Fix — Lock global para lazy init de comparativas
+# ==============================================================================
+_COMPARATIVAS_INIT_LOCK = threading.Lock()
+_COMPARATIVAS_INIT_DONE = False
+
+
 def _init_comparativas():
     """
     Inicializa el motor de comparativas usando _set_main_df_robusto
@@ -789,6 +796,67 @@ def _init_comparativas():
         f"✅ ComparativasEngine v5.1 listo "
         f"({len(_periodo_cache._claves_protegidas)} periodos locales protegidos)"
     )
+
+
+def _comparativas_ready() -> bool:
+    """
+    True si el motor tiene al menos un periodo indexado.
+    Comprobación O(1), sin locks.
+    """
+    if not COMPARATIVAS_ENGINE_AVAILABLE or _periodo_cache is None:
+        return False
+    if len(_periodo_cache._claves_protegidas) > 0:
+        return True
+    return _periodo_cache._indice_cargado and len(_periodo_cache._indice) > 0
+
+
+def _ensure_comparativas() -> bool:
+    """
+    Garantiza que _init_comparativas() se ejecuta al menos una vez con éxito.
+    Thread-safe: múltiples peticiones simultáneas en cold start esperan al lock;
+    solo UNA ejecuta el init, las demás reutilizan el resultado.
+    """
+    global _COMPARATIVAS_INIT_DONE
+
+    # Fast-path: ya inicializado
+    if _COMPARATIVAS_INIT_DONE and _comparativas_ready():
+        return True
+
+    with _COMPARATIVAS_INIT_LOCK:
+        # Double-check tras adquirir lock
+        if _COMPARATIVAS_INIT_DONE and _comparativas_ready():
+            return True
+
+        logging.info("🔄 _ensure_comparativas: lazy init...")
+
+        df = dataframe_cache.get_dataframe()
+        if df.empty:
+            logging.warning("⚠️  _ensure_comparativas: DF vacío, forzando recarga...")
+            df = dataframe_cache.cargar_dataframe(force_reload=True)
+
+        if df.empty:
+            logging.error("❌ _ensure_comparativas: DF sigue vacío — abortando")
+            return False
+
+        try:
+            _init_comparativas()
+            ok = _comparativas_ready()
+            if ok:
+                _COMPARATIVAS_INIT_DONE = True
+                logging.info(
+                    f"✅ _ensure_comparativas: listo "
+                    f"({len(_periodo_cache._claves_protegidas)} periodos protegidos, "
+                    f"{len(_periodo_cache._indice)} entradas Drive)"
+                )
+            else:
+                logging.warning(
+                    "⚠️  _ensure_comparativas: sin periodos tras init. "
+                    "Se reintentará en la próxima petición."
+                )
+            return ok
+        except Exception as exc:
+            logging.error(f"❌ _ensure_comparativas: {exc}", exc_info=True)
+            return False
 
 
 # ==============================================================================
@@ -1462,15 +1530,43 @@ def cn_top5_todos():
         return jsonify({'error': str(exc)}), 500
 
 
+# ==============================================================================
+# PATCH PASO 5: situacion_distribucion con fallback a pandas
+# ==============================================================================
 @app.route('/api/situacion_distribucion')
 def situacion_distribucion():
     try:
+        # Intento 1: precalc de Polars (O(1) si ya está listo)
         if PRECALC_AVAILABLE and _stats_cache and _stats_cache.is_ready:
             data = _stats_cache.get_situacion_dist()
             if data:
                 return json_response(data)
-        return jsonify({'error': 'Datos no disponibles aún'}), 503
+
+        # Fallback: calcular inline desde el DataFrame (igual que hacen cn_resumen, etc.)
+        df = dataframe_cache.get_ultimo_mes()
+        if df.empty:
+            return jsonify({'error': 'No hay datos disponibles'}), 503
+
+        col_sit = Config.COLUMNA_SITUACION
+        if col_sit not in df.columns:
+            return jsonify({'error': f'Columna {col_sit} no encontrada'}), 500
+
+        total = len(df)
+        cnts  = df[col_sit].fillna('Sin información').astype(str).value_counts()
+
+        distribucion = [
+            {
+                'situacion':   str(sit),
+                'cantidad':    int(cnt),
+                'porcentaje':  round(cnt / total * 100, 2) if total else 0.0,
+            }
+            for sit, cnt in cnts.items()
+        ]
+
+        return json_response({'total': total, 'distribucion': distribucion})
+
     except Exception as exc:
+        logging.error(f"situacion_distribucion: {exc}")
         return jsonify({'error': str(exc)}), 500
 
 
@@ -1722,23 +1818,35 @@ def cleanup_drive_cache():
 
 
 # ==============================================================================
-# COMPARATIVAS — endpoints v5.1
+# COMPARATIVAS — endpoints v5.1 (con lazy init — PATCH PASOS 3 y 4)
 # ==============================================================================
 
 @app.route('/api/drive-comparativas/periodos')
 def get_comparativa_periodos():
+    """
+    Periodos disponibles con lazy init.
+    Si el motor no está listo (cold start Render) lo inicializa antes de responder.
+    """
+    # ── Lazy init silencioso ───────────────────────────────────────────────
+    if not _comparativas_ready():
+        logging.info("⏳ get_comparativa_periodos: motor no listo, ejecutando lazy init...")
+        _ensure_comparativas()
+
+    # ── Responder con el motor activo ──────────────────────────────────────
     if COMPARATIVAS_ENGINE_AVAILABLE and _comparativas_engine is not None:
         try:
             return json_response(_comparativas_engine.periodos_disponibles())
         except Exception as exc:
             logging.error(f"periodos v5: {exc}\n{traceback.format_exc()}")
+
+    # ── Fallback legacy ────────────────────────────────────────────────────
     if not DRIVE_MODULES_AVAILABLE:
         return jsonify({'error': 'Módulos Drive no disponibles'}), 503
     try:
         years, meses = obtener_años_desde_arbol_json()
-        return jsonify({'status':'success','years':years,'meses_por_anio':meses})
+        return jsonify({'status': 'success', 'years': years, 'meses_por_anio': meses})
     except Exception as exc:
-        return jsonify({'status':'error','message':str(exc)}), 500
+        return jsonify({'status': 'error', 'message': str(exc)}), 500
 
 
 @app.route('/api/drive-comparativas/comparar-avanzado')
@@ -1748,40 +1856,70 @@ def comparar_periodos_avanzado_unificado():
     p1     = request.args.get('periodo1', '')
     p2     = request.args.get('periodo2', '')
     filtro = request.args.get('filtro_estado', 'Todos')
+
     if not all([year1, p1, year2, p2]):
-        return json_response({'status': 'error', 'message': 'Se requieren year1, periodo1, year2 y periodo2'}, 400)
+        return json_response(
+            {'status': 'error', 'message': 'Se requieren year1, periodo1, year2 y periodo2'}, 400
+        )
+
     if COMPARATIVAS_ENGINE_AVAILABLE and _comparativas_engine is not None:
+        # Lazy init: igual que en periodos
+        if not _comparativas_ready():
+            _ensure_comparativas()
         try:
-            res = _comparativas_engine.comparar(año1=year1, mes1=p1, año2=year2, mes2=p2, filtro_estado=filtro)
+            res = _comparativas_engine.comparar(
+                año1=year1, mes1=p1, año2=year2, mes2=p2, filtro_estado=filtro
+            )
             return json_response(res, 200 if res.get('status') == 'success' else 400)
         except Exception as exc:
             logging.error(f"comparar-avanzado v5: {exc}\n{traceback.format_exc()}")
+
     if not DRIVE_MODULES_AVAILABLE:
         return jsonify({'error': 'Módulos Drive no disponibles'}), 503
     try:
-        metricas = request.args.getlist('metricas') or ['CN_Inicial_Acum','CN_Prim_Acum','CN_Sec_Acum','CN_Tot_Acum','Situación']
+        metricas = request.args.getlist('metricas') or [
+            'CN_Inicial_Acum', 'CN_Prim_Acum', 'CN_Sec_Acum', 'CN_Tot_Acum', 'Situación'
+        ]
         years_disp = drive_excel_reader_readonly.get_available_years()
         for y in [year1, year2]:
             if y not in years_disp:
-                return jsonify({'status':'error','message':f'Año {y} no disponible','available_years':years_disp}), 404
+                return jsonify({
+                    'status': 'error',
+                    'message': f'Año {y} no disponible',
+                    'available_years': years_disp,
+                }), 404
         m1 = drive_excel_reader_readonly.get_available_months(year1)
         m2 = drive_excel_reader_readonly.get_available_months(year2)
-        if p1 not in m1: return jsonify({'status':'error','message':f'Mes {p1} no disponible para {year1}','available_months':m1}), 404
-        if p2 not in m2: return jsonify({'status':'error','message':f'Mes {p2} no disponible para {year2}','available_months':m2}), 404
+        if p1 not in m1:
+            return jsonify({
+                'status': 'error',
+                'message': f'Mes {p1} no disponible para {year1}',
+                'available_months': m1,
+            }), 404
+        if p2 not in m2:
+            return jsonify({
+                'status': 'error',
+                'message': f'Mes {p2} no disponible para {year2}',
+                'available_months': m2,
+            }), 404
         if year1 != year2:
-            res = drive_excel_comparator.comparar_periodos_avanzado_con_años_diferentes(year1,p1,year2,p2,filtro,metricas)
+            res = drive_excel_comparator.comparar_periodos_avanzado_con_años_diferentes(
+                year1, p1, year2, p2, filtro, metricas
+            )
         else:
-            res = drive_excel_comparator.comparar_periodos_avanzado(year1,p1,p2,filtro,metricas)
+            res = drive_excel_comparator.comparar_periodos_avanzado(
+                year1, p1, p2, filtro, metricas
+            )
         if res.get('status') == 'success':
             try:
                 json.dumps(res)
                 return jsonify(res)
             except (TypeError, ValueError):
                 return jsonify(safe_json_serialize(res))
-        return jsonify({'status':'error','message':res.get('error','Error desconocido')}), 400
+        return jsonify({'status': 'error', 'message': res.get('error', 'Error desconocido')}), 400
     except Exception as exc:
         logging.error(f"comparar-avanzado legado: {exc}\n{traceback.format_exc()}")
-        return jsonify({'status':'error','message':str(exc)}), 500
+        return jsonify({'status': 'error', 'message': str(exc)}), 500
 
 
 @app.route('/api/drive-comparativas/comparar')
@@ -2224,15 +2362,41 @@ def get_coordenadas_lazy():
     except Exception as exc:
         return jsonify({'error': str(exc), 'datos': []}), 500
 
+
+# ==============================================================================
+# PATCH PASO 6: get_coordenadas_optimizadas con fix de cold start
+# ==============================================================================
 @app.route('/api/mapa/coordenadas-optimizadas')
 def get_coordenadas_optimizadas():
     try:
         plazas = dataframe_cache.get_coordenadas()
+
+        # Si el cache de coordenadas aún está vacío (cold start),
+        # forzar regeneración sincrónica desde el DataFrame
         if not plazas:
-            return jsonify({'error': 'Datos no disponibles', 'datos': []}), 404
-        return json_response({'status':'success','total_plazas':len(plazas),'plazas':plazas,'cached':True})
+            logging.info("⏳ coordenadas-optimizadas: cache vacío, regenerando desde DF...")
+            # Invalidar el cache de coordenadas para forzar reconstrucción
+            dataframe_cache._coordenadas_cache = None
+            plazas = dataframe_cache.get_coordenadas()
+
+        if not plazas:
+            return jsonify({
+                'error':  'Coordenadas no disponibles aún',
+                'datos':  [],
+                'status': 'warming_up',
+            }), 503   # 503 es más correcto que 404 (el recurso existe pero no está listo)
+
+        return json_response({
+            'status':       'success',
+            'total_plazas': len(plazas),
+            'plazas':       plazas,
+            'cached':       True,
+        })
+
     except Exception as exc:
+        logging.error(f"get_coordenadas_optimizadas: {exc}")
         return jsonify({'error': str(exc), 'datos': []}), 500
+
 
 @app.route('/api/mapa/coordenadas-completas')
 def get_coordenadas_completas():
@@ -2594,6 +2758,56 @@ def precalcular_datos():
 
     except Exception as exc:
         logging.error(f"❌ Pre-cálculo: {exc}\n{traceback.format_exc()}")
+
+
+# ==============================================================================
+# PATCH PASO 7: /api/health — healthcheck + warmup para Render
+# Configurar en Render Dashboard → Settings → Health Check Path: /api/health
+# ==============================================================================
+@app.route('/api/health')
+def health_check():
+    """
+    Healthcheck + warmup para Render.
+
+    - Siempre devuelve HTTP 200 (nunca 5xx durante warmup)
+      para que Render no reinicie el dyno mientras calienta.
+    - Si el motor no está listo, dispara warmup en background.
+    - status: 'ok'         → todo listo, peticiones normales
+    - status: 'warming_up' → iniciando, peticiones pueden ser lentas
+    """
+    df         = dataframe_cache.get_dataframe()
+    df_listo   = not df.empty
+    comp_listo = _comparativas_ready()
+
+    if not comp_listo:
+        # Warmup en background: no bloquea el health check
+        def _warmup_bg():
+            try:
+                _ensure_comparativas()
+            except Exception as exc:
+                logging.error(f"health warmup: {exc}")
+
+        t = threading.Thread(target=_warmup_bg, daemon=True, name="HealthWarmup")
+        t.start()
+
+    periodos_prot = (
+        len(_periodo_cache._claves_protegidas) if _periodo_cache else 0
+    )
+    stats_listo = PRECALC_AVAILABLE and bool(_stats_cache and _stats_cache.is_ready)
+    index_listo = PLAZA_INDEX_AVAILABLE and bool(_plaza_index and _plaza_index.is_ready)
+
+    estado_global = 'ok' if (df_listo and comp_listo) else 'warming_up'
+
+    return json_response({
+        'status':              estado_global,
+        'df_listo':            df_listo,
+        'comparativas_listo':  comp_listo,
+        'stats_cache_listo':   stats_listo,
+        'plaza_index_listo':   index_listo,
+        'registros':           len(df),
+        'periodos_protegidos': periodos_prot,
+        'timestamp':           datetime.now().isoformat(),
+    }, 200)   # ← SIEMPRE 200
 
 
 # ==============================================================================
