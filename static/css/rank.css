@@ -1,0 +1,294 @@
+/* ============================================================
+   RANK.CSS — Estilos exclusivos para rank.js
+   ============================================================ */
+
+/* ============================= */
+/* 1. GANADORES                  */
+/* ============================= */
+.winners-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+    gap: 1.25rem;
+    margin-top: 1.5rem;
+    width: 100%;
+}
+
+.winner-card {
+    background: linear-gradient(135deg, var(--surface-color) 0%, var(--light-color) 100%);
+    border: 1px solid var(--border-color);
+    border-radius: var(--border-radius-lg);
+    padding: 1.25rem;
+    box-shadow: var(--shadow);
+    transition: all var(--transition-normal);
+    position: relative;
+    overflow: hidden;
+    display: flex;
+    flex-direction: column;
+    gap: 0.75rem;
+}
+
+.winner-card::before {
+    content: '';
+    position: absolute;
+    top: 0; left: 0; right: 0;
+    height: 4px;
+    background: linear-gradient(90deg, var(--primary-color), var(--secondary-color));
+}
+
+.winner-card:hover {
+    transform: translateY(-4px);
+    box-shadow: var(--shadow-hover);
+    border-color: var(--primary-color);
+}
+
+/* ============================= */
+/* 2. TABLA — wrapper único      */
+/* El scroll LO HACE EL WRAPPER  */
+/* thead y tfoot son sticky via  */
+/* position:sticky top/bottom    */
+/* ============================= */
+
+/* Wrapper externo: solo define borde y border-radius */
+.table-responsive {
+    width: 100%;
+    border: 1px solid var(--border-color);
+    border-radius: var(--border-radius-lg);
+    background-color: var(--surface-color);
+    /* UN SOLO scroll aquí — todo se mueve junto */
+    overflow: auto;
+    max-height: 65vh;
+    position: relative;
+}
+
+/* Scrollbar del wrapper */
+.table-responsive::-webkit-scrollbar        { width: 7px; height: 7px; }
+.table-responsive::-webkit-scrollbar-track  { background: var(--light-color, #f1f5f9); }
+.table-responsive::-webkit-scrollbar-thumb  { background: #94a3b8; border-radius: 4px; }
+.table-responsive::-webkit-scrollbar-thumb:hover { background: var(--primary-color, #3b82f6); }
+.table-responsive::-webkit-scrollbar-corner { background: var(--light-color, #f1f5f9); }
+
+/* La tabla: colapsa bordes y ocupa el ancho mínimo */
+.table-responsive table {
+    border-collapse: collapse;
+    width: 100%;
+    min-width: 950px;
+}
+
+/* ── THEAD sticky arriba ── */
+.table-responsive thead th {
+    position: sticky;
+    top: 0;
+    z-index: 100;
+    background-color: #1e293b;
+    color: white;
+    padding: 0.875rem 1rem;
+    text-align: left;
+    font-weight: 600;
+    font-size: var(--font-size-sm);
+    white-space: nowrap;
+    border-bottom: 2px solid var(--primary-color, #4c8edf);
+    /* sin box-shadow para no crear stacking context problemático */
+}
+
+/* ── TFOOT sticky abajo ── */
+.table-responsive tfoot td,
+.table-responsive tfoot th {
+    position: sticky;
+    bottom: 0;
+    z-index: 100;
+    background-color: #f1f5f9;
+    font-weight: 700;
+    font-size: var(--font-size-sm);
+    color: var(--text-color);
+    white-space: nowrap;
+    padding: 0.875rem 1rem;
+    border-top: 2px solid var(--primary-color, #4c8edf);
+    box-shadow: 0 -2px 6px rgba(0,0,0,0.10);
+}
+
+[data-theme="dark"] .table-responsive tfoot td,
+[data-theme="dark"] .table-responsive tfoot th {
+    background-color: #1e293b;
+    color: white;
+    border-top: 2px solid #3b82f6;
+}
+
+/* ── TBODY ── */
+.table-responsive tbody tr {
+    transition: background-color var(--transition-fast);
+}
+
+.table-responsive tbody tr:hover {
+    background-color: var(--light-color);
+}
+
+.table-responsive tbody td {
+    padding: 0.75rem 1rem;
+    border-bottom: 1px solid var(--border-color);
+    font-size: var(--font-size-sm);
+    color: var(--text-color);
+    white-space: nowrap;
+    background-color: var(--surface-color);
+}
+
+.table-responsive tbody tr:last-child td {
+    border-bottom: none;
+}
+
+/* ============================= */
+/* 3. STICKY COLUMNAS — #top-plazas-table */
+/* Col 1: Clave   sticky left:0           */
+/* Col 2: Plaza   sticky left:120px       */
+/* Col 3: Municipio — NO sticky           */
+/* ============================= */
+
+/* thead */
+#top-plazas-table thead th:nth-child(1) {
+    left: 0; position: sticky; z-index: 110;
+    background-color: #1e293b !important;
+    min-width: 120px; width: 120px;
+}
+#top-plazas-table thead th:nth-child(2) {
+    left: 120px; position: sticky; z-index: 110;
+    background-color: #1e293b !important;
+    min-width: 220px; width: 220px;
+    border-right: 2px solid rgba(255,255,255,0.2);
+}
+#top-plazas-table thead th:nth-child(3) {
+    min-width: 160px; width: 160px;
+}
+
+/* tbody */
+#top-plazas-table tbody td:nth-child(1) {
+    left: 0; position: sticky; z-index: 20;
+    background-color: var(--surface-color);
+    min-width: 120px; width: 120px;
+    border-right: 1px solid var(--border-color);
+}
+#top-plazas-table tbody td:nth-child(2) {
+    left: 120px; position: sticky; z-index: 20;
+    background-color: var(--surface-color);
+    min-width: 220px; width: 220px;
+    border-right: 2px solid var(--border-color);
+    box-shadow: 4px 0 6px -2px rgba(0,0,0,0.10);
+}
+#top-plazas-table tbody td:nth-child(3) {
+    min-width: 160px; width: 160px;
+    white-space: normal !important;
+    word-break: break-word;
+    line-height: 1.3;
+}
+
+/* tfoot — sticky bottom ya viene del selector general,
+   solo añadir sticky left para las 2 primeras cols     */
+#top-plazas-table tfoot td:nth-child(1) {
+    left: 0; position: sticky; z-index: 110;
+    background-color: #f1f5f9 !important;
+    min-width: 120px; width: 120px;
+}
+#top-plazas-table tfoot td:nth-child(2) {
+    left: 120px; position: sticky; z-index: 110;
+    background-color: #f1f5f9 !important;
+    min-width: 220px; width: 220px;
+    border-right: 2px solid var(--border-color);
+}
+#top-plazas-table tfoot td:nth-child(3) {
+    min-width: 160px; width: 160px;
+}
+
+/* hover sticky cols */
+#top-plazas-table tbody tr:hover td:nth-child(1),
+#top-plazas-table tbody tr:hover td:nth-child(2) {
+    background-color: var(--light-color);
+}
+
+/* dark mode sticky cols */
+[data-theme="dark"] #top-plazas-table tbody td:nth-child(1),
+[data-theme="dark"] #top-plazas-table tbody td:nth-child(2) {
+    background-color: var(--surface-color);
+}
+[data-theme="dark"] #top-plazas-table tbody tr:hover td:nth-child(1),
+[data-theme="dark"] #top-plazas-table tbody tr:hover td:nth-child(2) {
+    background-color: #1e293b;
+}
+[data-theme="dark"] #top-plazas-table tfoot td:nth-child(1),
+[data-theme="dark"] #top-plazas-table tfoot td:nth-child(2) {
+    background-color: #1e293b !important;
+}
+
+/* ============================= */
+/* 4. ORDENAMIENTO               */
+/* ============================= */
+.sortable, .sortable-muni {
+    cursor: pointer;
+    user-select: none;
+    transition: background-color var(--transition-fast);
+}
+.sortable:hover, .sortable-muni:hover {
+    background-color: rgba(255,255,255,0.1);
+}
+.sortable.asc::after,  .sortable-muni.asc::after  { content: ' ↑'; opacity: 0.8; }
+.sortable.desc::after, .sortable-muni.desc::after { content: ' ↓'; opacity: 0.8; }
+
+.metric-header { text-align: center !important; min-width: 110px; }
+
+/* ============================= */
+/* 5. ENLACE PLAZA               */
+/* ============================= */
+.enlace-plaza {
+    font-weight: 700;
+    color: var(--primary-color);
+    text-decoration: underline;
+    transition: color var(--transition-fast);
+}
+.enlace-plaza:hover {
+    color: var(--primary-dark);
+    text-decoration: none;
+}
+
+/* ============================= */
+/* 6. STICKY COL GENÉRICA        */
+/* ============================= */
+.sticky-col {
+    position: sticky;
+    left: 0;
+    z-index: 90;
+    background-color: var(--surface-color);
+    border-right: 2px solid var(--border-color);
+    font-weight: 700;
+    min-width: 120px;
+    box-shadow: 2px 0 5px rgba(0,0,0,0.08);
+}
+.table-responsive thead th.sticky-col {
+    z-index: 110;
+    background-color: #1e293b;
+}
+[data-theme="dark"] .sticky-col {
+    background-color: var(--surface-color);
+    border-right-color: var(--border-color);
+}
+
+/* ============================= */
+/* 7. RESPONSIVE                 */
+/* ============================= */
+@media (max-width: 768px) {
+    .winners-grid { grid-template-columns: 1fr 1fr; gap: 1rem; }
+    .winner-card  { padding: 1rem; }
+    .table-responsive { max-height: 55vh; }
+
+    #top-plazas-table thead th:nth-child(1),
+    #top-plazas-table thead th:nth-child(2),
+    #top-plazas-table tbody td:nth-child(1),
+    #top-plazas-table tbody td:nth-child(2),
+    #top-plazas-table tfoot td:nth-child(1),
+    #top-plazas-table tfoot td:nth-child(2) {
+        position: static;
+        box-shadow: none;
+    }
+    .table-responsive table { min-width: 100%; }
+}
+
+@media (max-width: 480px) {
+    .winners-grid { grid-template-columns: 1fr; }
+    .table-responsive { max-height: 45vh; }
+}

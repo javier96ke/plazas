@@ -1,0 +1,13 @@
+services:
+  - type: web
+    name: plazas-flask
+    runtime: python
+    plan: free
+
+    buildCommand: ./build.sh
+
+    startCommand: gunicorn --bind 0.0.0.0:$PORT app.app:app
+
+    envVars:
+      - key: PYTHON_VERSION
+        value: 3.12.6

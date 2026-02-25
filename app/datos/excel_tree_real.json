@@ -1,0 +1,262 @@
+{
+  "generated_at": "2025-11-14T13:31:05.386999",
+  "source_folder_id": "1PcAReUcZVNwQGsgUzOieVVraTLRPLCdq",
+  "source_folder_name": "Historico_Plazas _Com",
+  "statistics": {
+    "total_excel_files": 11,
+    "unique_years": [
+      "2025",
+      "2026"
+    ],
+    "unique_months": [
+      "01",
+      "02",
+      "03",
+      "04",
+      "05",
+      "06",
+      "07",
+      "08",
+      "09",
+      "10"
+    ]
+  },
+  "tree": {
+    "name": "carpeta_abuelo",
+    "path": "",
+    "type": "folder",
+    "children": [
+      {
+        "name": "Año_2024",
+        "path": "Año_2024",
+        "type": "folder",
+        "children": []
+      },
+      {
+        "name": "Año_2026",
+        "path": "Año_2026",
+        "type": "folder",
+        "children": [
+          {
+            "name": "Octubre_datos_plazasP.xlsx",
+            "path": "Año_2026/Octubre_datos_plazasP.xlsx",
+            "type": "file",
+            "mimeType": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            "id": "194ZdkyqAkKsJDzUryLaCVSnXCebW3-U6",
+            "size": "2158395",
+            "modifiedTime": "2025-11-13T18:00:16.708Z",
+            "year": "2026",
+            "month": "10",
+            "download_url": "https://drive.google.com/uc?id=194ZdkyqAkKsJDzUryLaCVSnXCebW3-U6&export=download",
+            "view_url": "https://drive.google.com/file/d/194ZdkyqAkKsJDzUryLaCVSnXCebW3-U6/view"
+          }
+        ]
+      },
+      {
+        "name": "Año_2025",
+        "path": "Año_2025",
+        "type": "folder",
+        "children": [
+          {
+            "name": "Octubre.xlsx",
+            "path": "Año_2025/Octubre.xlsx",
+            "type": "file",
+            "mimeType": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            "id": "1TcRUVtyC30faDivU_ndB8RhTFa5SkX0s",
+            "size": "526543",
+            "modifiedTime": "2025-11-14T19:09:07.000Z",
+            "year": "2025",
+            "month": "10",
+            "download_url": "https://drive.google.com/uc?id=1TcRUVtyC30faDivU_ndB8RhTFa5SkX0s&export=download",
+            "view_url": "https://drive.google.com/file/d/1TcRUVtyC30faDivU_ndB8RhTFa5SkX0s/view"
+          },
+          {
+            "name": "Septiembre.xlsx",
+            "path": "Año_2025/Septiembre.xlsx",
+            "type": "file",
+            "mimeType": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            "id": "11SJZgnSvOBMk53QCY_WK64NXU9aYTggM",
+            "size": "583136",
+            "modifiedTime": "2025-11-14T19:09:03.000Z",
+            "year": "2025",
+            "month": "09",
+            "download_url": "https://drive.google.com/uc?id=11SJZgnSvOBMk53QCY_WK64NXU9aYTggM&export=download",
+            "view_url": "https://drive.google.com/file/d/11SJZgnSvOBMk53QCY_WK64NXU9aYTggM/view"
+          },
+          {
+            "name": "Agosto.xlsx",
+            "path": "Año_2025/Agosto.xlsx",
+            "type": "file",
+            "mimeType": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            "id": "1-fZb515KOSdlSeDmCEXJLpWxOHWEOngD",
+            "size": "531756",
+            "modifiedTime": "2025-11-14T19:08:59.000Z",
+            "year": "2025",
+            "month": "08",
+            "download_url": "https://drive.google.com/uc?id=1-fZb515KOSdlSeDmCEXJLpWxOHWEOngD&export=download",
+            "view_url": "https://drive.google.com/file/d/1-fZb515KOSdlSeDmCEXJLpWxOHWEOngD/view"
+          },
+          {
+            "name": "Julio.xlsx",
+            "path": "Año_2025/Julio.xlsx",
+            "type": "file",
+            "mimeType": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            "id": "1RJfWp1Ga5HzIWGqaIr6r3X7M3seu4ga7",
+            "size": "531699",
+            "modifiedTime": "2025-11-14T19:08:55.000Z",
+            "year": "2025",
+            "month": "07",
+            "download_url": "https://drive.google.com/uc?id=1RJfWp1Ga5HzIWGqaIr6r3X7M3seu4ga7&export=download",
+            "view_url": "https://drive.google.com/file/d/1RJfWp1Ga5HzIWGqaIr6r3X7M3seu4ga7/view"
+          },
+          {
+            "name": "Junio.xlsx",
+            "path": "Año_2025/Junio.xlsx",
+            "type": "file",
+            "mimeType": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            "id": "1s529ZRwyS6lFmMUJNUM-3Dd2pEYO0Zzp",
+            "size": "532059",
+            "modifiedTime": "2025-11-14T19:08:51.000Z",
+            "year": "2025",
+            "month": "06",
+            "download_url": "https://drive.google.com/uc?id=1s529ZRwyS6lFmMUJNUM-3Dd2pEYO0Zzp&export=download",
+            "view_url": "https://drive.google.com/file/d/1s529ZRwyS6lFmMUJNUM-3Dd2pEYO0Zzp/view"
+          },
+          {
+            "name": "Mayo.xlsx",
+            "path": "Año_2025/Mayo.xlsx",
+            "type": "file",
+            "mimeType": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            "id": "10WTa1tQkh-U3qlobB1EZFPyW_iwBlPes",
+            "size": "530350",
+            "modifiedTime": "2025-11-14T19:08:47.000Z",
+            "year": "2025",
+            "month": "05",
+            "download_url": "https://drive.google.com/uc?id=10WTa1tQkh-U3qlobB1EZFPyW_iwBlPes&export=download",
+            "view_url": "https://drive.google.com/file/d/10WTa1tQkh-U3qlobB1EZFPyW_iwBlPes/view"
+          },
+          {
+            "name": "Abril.xlsx",
+            "path": "Año_2025/Abril.xlsx",
+            "type": "file",
+            "mimeType": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            "id": "1xCwpLbT1s5sQSauhZKdvRxpHMWuXDZ0S",
+            "size": "532985",
+            "modifiedTime": "2025-11-14T19:08:43.000Z",
+            "year": "2025",
+            "month": "04",
+            "download_url": "https://drive.google.com/uc?id=1xCwpLbT1s5sQSauhZKdvRxpHMWuXDZ0S&export=download",
+            "view_url": "https://drive.google.com/file/d/1xCwpLbT1s5sQSauhZKdvRxpHMWuXDZ0S/view"
+          },
+          {
+            "name": "Marzo.xlsx",
+            "path": "Año_2025/Marzo.xlsx",
+            "type": "file",
+            "mimeType": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            "id": "1W7QeWX4l5LzqQ5MOUi5fbTCyTFxO4qqY",
+            "size": "533301",
+            "modifiedTime": "2025-11-14T19:08:38.000Z",
+            "year": "2025",
+            "month": "03",
+            "download_url": "https://drive.google.com/uc?id=1W7QeWX4l5LzqQ5MOUi5fbTCyTFxO4qqY&export=download",
+            "view_url": "https://drive.google.com/file/d/1W7QeWX4l5LzqQ5MOUi5fbTCyTFxO4qqY/view"
+          },
+          {
+            "name": "Febrero.xlsx",
+            "path": "Año_2025/Febrero.xlsx",
+            "type": "file",
+            "mimeType": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            "id": "1VAHazJarYo5akZZbD5gup0LfbO8949Nw",
+            "size": "533075",
+            "modifiedTime": "2025-11-14T19:08:34.000Z",
+            "year": "2025",
+            "month": "02",
+            "download_url": "https://drive.google.com/uc?id=1VAHazJarYo5akZZbD5gup0LfbO8949Nw&export=download",
+            "view_url": "https://drive.google.com/file/d/1VAHazJarYo5akZZbD5gup0LfbO8949Nw/view"
+          },
+          {
+            "name": "Enero.xlsx",
+            "path": "Año_2025/Enero.xlsx",
+            "type": "file",
+            "mimeType": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            "id": "1AYIOZ2IF7FjSJT4egJHqgdJfds4y-sF8",
+            "size": "532476",
+            "modifiedTime": "2025-11-14T19:08:30.000Z",
+            "year": "2025",
+            "month": "01",
+            "download_url": "https://drive.google.com/uc?id=1AYIOZ2IF7FjSJT4egJHqgdJfds4y-sF8&export=download",
+            "view_url": "https://drive.google.com/file/d/1AYIOZ2IF7FjSJT4egJHqgdJfds4y-sF8/view"
+          }
+        ]
+      }
+    ]
+  },
+  "index": {
+    "2026-10": {
+      "name": "Octubre_datos_plazasP.xlsx",
+      "id": "194ZdkyqAkKsJDzUryLaCVSnXCebW3-U6",
+      "download_url": "https://drive.google.com/uc?id=194ZdkyqAkKsJDzUryLaCVSnXCebW3-U6&export=download",
+      "view_url": "https://drive.google.com/file/d/194ZdkyqAkKsJDzUryLaCVSnXCebW3-U6/view"
+    },
+    "2025-10": {
+      "name": "Octubre.xlsx",
+      "id": "1TcRUVtyC30faDivU_ndB8RhTFa5SkX0s",
+      "download_url": "https://drive.google.com/uc?id=1TcRUVtyC30faDivU_ndB8RhTFa5SkX0s&export=download",
+      "view_url": "https://drive.google.com/file/d/1TcRUVtyC30faDivU_ndB8RhTFa5SkX0s/view"
+    },
+    "2025-09": {
+      "name": "Septiembre.xlsx",
+      "id": "11SJZgnSvOBMk53QCY_WK64NXU9aYTggM",
+      "download_url": "https://drive.google.com/uc?id=11SJZgnSvOBMk53QCY_WK64NXU9aYTggM&export=download",
+      "view_url": "https://drive.google.com/file/d/11SJZgnSvOBMk53QCY_WK64NXU9aYTggM/view"
+    },
+    "2025-08": {
+      "name": "Agosto.xlsx",
+      "id": "1-fZb515KOSdlSeDmCEXJLpWxOHWEOngD",
+      "download_url": "https://drive.google.com/uc?id=1-fZb515KOSdlSeDmCEXJLpWxOHWEOngD&export=download",
+      "view_url": "https://drive.google.com/file/d/1-fZb515KOSdlSeDmCEXJLpWxOHWEOngD/view"
+    },
+    "2025-07": {
+      "name": "Julio.xlsx",
+      "id": "1RJfWp1Ga5HzIWGqaIr6r3X7M3seu4ga7",
+      "download_url": "https://drive.google.com/uc?id=1RJfWp1Ga5HzIWGqaIr6r3X7M3seu4ga7&export=download",
+      "view_url": "https://drive.google.com/file/d/1RJfWp1Ga5HzIWGqaIr6r3X7M3seu4ga7/view"
+    },
+    "2025-06": {
+      "name": "Junio.xlsx",
+      "id": "1s529ZRwyS6lFmMUJNUM-3Dd2pEYO0Zzp",
+      "download_url": "https://drive.google.com/uc?id=1s529ZRwyS6lFmMUJNUM-3Dd2pEYO0Zzp&export=download",
+      "view_url": "https://drive.google.com/file/d/1s529ZRwyS6lFmMUJNUM-3Dd2pEYO0Zzp/view"
+    },
+    "2025-05": {
+      "name": "Mayo.xlsx",
+      "id": "10WTa1tQkh-U3qlobB1EZFPyW_iwBlPes",
+      "download_url": "https://drive.google.com/uc?id=10WTa1tQkh-U3qlobB1EZFPyW_iwBlPes&export=download",
+      "view_url": "https://drive.google.com/file/d/10WTa1tQkh-U3qlobB1EZFPyW_iwBlPes/view"
+    },
+    "2025-04": {
+      "name": "Abril.xlsx",
+      "id": "1xCwpLbT1s5sQSauhZKdvRxpHMWuXDZ0S",
+      "download_url": "https://drive.google.com/uc?id=1xCwpLbT1s5sQSauhZKdvRxpHMWuXDZ0S&export=download",
+      "view_url": "https://drive.google.com/file/d/1xCwpLbT1s5sQSauhZKdvRxpHMWuXDZ0S/view"
+    },
+    "2025-03": {
+      "name": "Marzo.xlsx",
+      "id": "1W7QeWX4l5LzqQ5MOUi5fbTCyTFxO4qqY",
+      "download_url": "https://drive.google.com/uc?id=1W7QeWX4l5LzqQ5MOUi5fbTCyTFxO4qqY&export=download",
+      "view_url": "https://drive.google.com/file/d/1W7QeWX4l5LzqQ5MOUi5fbTCyTFxO4qqY/view"
+    },
+    "2025-02": {
+      "name": "Febrero.xlsx",
+      "id": "1VAHazJarYo5akZZbD5gup0LfbO8949Nw",
+      "download_url": "https://drive.google.com/uc?id=1VAHazJarYo5akZZbD5gup0LfbO8949Nw&export=download",
+      "view_url": "https://drive.google.com/file/d/1VAHazJarYo5akZZbD5gup0LfbO8949Nw/view"
+    },
+    "2025-01": {
+      "name": "Enero.xlsx",
+      "id": "1AYIOZ2IF7FjSJT4egJHqgdJfds4y-sF8",
+      "download_url": "https://drive.google.com/uc?id=1AYIOZ2IF7FjSJT4egJHqgdJfds4y-sF8&export=download",
+      "view_url": "https://drive.google.com/file/d/1AYIOZ2IF7FjSJT4egJHqgdJfds4y-sF8/view"
+    }
+  }
+}

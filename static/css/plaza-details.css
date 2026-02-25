@@ -1,0 +1,621 @@
+
+/* ============================================================
+   RANK.CSS — Estilos exclusivos para rank.js
+   Incluye: winners-grid, tablas sticky (plazas y municipios), 
+   ordenamiento, soporte claro/oscuro y responsive
+   ============================================================ */
+
+/* ============================= */
+/* 1. CONTENEDOR PRINCIPAL */
+/* ============================= */
+#top-winners-container {
+    margin-top: 2rem;
+    width: 100%;
+}
+
+/* ============================= */
+/* 2. SELECTOR DE ESTADO */
+/* ============================= */
+.state-selector-container {
+    margin: 2rem 0;
+    padding: 1.5rem;
+    background: linear-gradient(135deg, var(--surface-color) 0%, var(--light-color) 100%);
+    border-radius: var(--border-radius-lg);
+    border: 1px solid var(--border-color);
+    box-shadow: var(--shadow);
+}
+
+.state-selector-container label {
+    display: block;
+    margin-bottom: 0.75rem;
+    font-weight: 600;
+    color: var(--text-color);
+    font-size: var(--font-size-base);
+}
+
+#top-state-select {
+    width: 100%;
+    max-width: 400px;
+    padding: 1rem 1.25rem;
+    border: 2px solid var(--border-color);
+    border-radius: var(--border-radius);
+    background: var(--surface-color);
+    color: var(--text-color);
+    font-size: var(--font-size-base);
+    cursor: pointer;
+    transition: all var(--transition-fast);
+}
+
+#top-state-select:hover {
+    border-color: var(--primary-color);
+}
+
+#top-state-select:focus {
+    outline: none;
+    border-color: var(--primary-color);
+    box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.1);
+}
+
+/* ============================= */
+/* 3. WINNERS GRID (TARJETAS DE MÉTRICAS) */
+/* ============================= */
+.winners-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+    gap: 1.5rem;
+    margin: 2rem 0;
+    width: 100%;
+}
+
+.winner-card {
+    background: linear-gradient(135deg, var(--surface-color) 0%, var(--light-color) 100%);
+    border: 1px solid var(--border-color);
+    border-radius: var(--border-radius-lg);
+    padding: 1.5rem;
+    box-shadow: var(--shadow);
+    transition: all var(--transition-normal);
+    position: relative;
+    overflow: hidden;
+    display: flex;
+    flex-direction: column;
+    gap: 1rem;
+}
+
+.winner-card::before {
+    content: '';
+    position: absolute;
+    top: 0;
+    left: 0;
+    right: 0;
+    height: 4px;
+    background: linear-gradient(90deg, var(--primary-color), var(--secondary-color));
+}
+
+.winner-card:hover {
+    transform: translateY(-4px);
+    box-shadow: var(--shadow-hover);
+    border-color: var(--primary-color);
+}
+
+.winner-card .metric-title {
+    font-size: 0.85rem;
+    text-transform: uppercase;
+    color: var(--text-muted);
+    font-weight: 700;
+    letter-spacing: 0.3px;
+    margin-bottom: 0.25rem;
+}
+
+.winner-card .metric-total {
+    font-size: 2rem;
+    font-weight: 800;
+    color: var(--dark-color);
+    line-height: 1.2;
+    margin-bottom: 0.5rem;
+}
+
+.winner-card .leader-section {
+    background: var(--surface-color);
+    padding: 0.75rem;
+    border-radius: var(--border-radius);
+    border: 1px solid var(--border-color);
+    font-size: 0.9rem;
+}
+
+.winner-card .leader-label {
+    color: var(--text-muted);
+    font-size: 0.75rem;
+    font-weight: 700;
+    text-transform: uppercase;
+    margin-bottom: 0.25rem;
+}
+
+.winner-card .leader-name {
+    font-weight: 600;
+    color: var(--text-color);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.winner-card .leader-value {
+    color: var(--primary-color);
+    font-weight: 700;
+    font-size: 0.9rem;
+    margin-top: 0.25rem;
+}
+
+.winner-card .leader-percentage {
+    color: var(--secondary-color);
+    font-weight: 600;
+}
+
+/* ============================= */
+/* 4. TABLAS RESPONSIVE (BASE) */
+/* ============================= */
+.table-responsive {
+    width: 100%;
+    overflow: auto;
+    max-height: 600px;
+    position: relative;
+    border: 1px solid var(--border-color);
+    border-radius: var(--border-radius-lg);
+    background-color: var(--surface-color);
+    -webkit-overflow-scrolling: touch;
+    box-shadow: var(--shadow);
+    margin: 2rem 0;
+}
+
+/* Scrollbar personalizado */
+.table-responsive::-webkit-scrollbar {
+    width: 10px;
+    height: 10px;
+}
+
+.table-responsive::-webkit-scrollbar-track {
+    background: var(--light-color);
+    border-radius: 0 0 var(--border-radius-lg) 0;
+}
+
+.table-responsive::-webkit-scrollbar-thumb {
+    background: var(--border-color);
+    border-radius: 5px;
+    border: 2px solid var(--light-color);
+}
+
+.table-responsive::-webkit-scrollbar-thumb:hover {
+    background: var(--primary-color);
+}
+
+/* Tablas dentro del contenedor */
+.table-responsive table {
+    border-collapse: separate;
+    border-spacing: 0;
+    width: 100%;
+    min-width: 1200px;
+    background: var(--surface-color);
+}
+
+/* ============================= */
+/* 5. ENCABEZADOS STICKY (SUPERIOR) */
+/* ============================= */
+.table-responsive thead th {
+    position: sticky;
+    top: 0;
+    z-index: 30;
+    background: #1e293b;
+    color: white !important;
+    padding: 1rem 1.25rem;
+    font-weight: 600;
+    font-size: 0.9rem;
+    white-space: nowrap;
+    border-bottom: 2px solid rgba(255, 255, 255, 0.1);
+    box-shadow: 0 2px 4px rgba(0, 0, 0, 0.15);
+}
+
+/* ============================= */
+/* 6. ORDENAMIENTO - CORREGIDO */
+/* ============================= */
+.sortable,
+.sortable-muni {
+    cursor: pointer;
+    user-select: none;
+    transition: background-color 0.2s ease;
+    padding-right: 25px !important;
+    position: relative;
+    color: white !important;
+}
+
+/* En lugar de blanco, usamos negro con opacidad para oscurecer sutilmente */
+.sortable:hover,
+.sortable-muni:hover,
+.sortable:active,
+.sortable-muni:active {
+    background-color: rgba(0, 0, 0, 0.2) !important;
+}
+
+/* Quitar el borde por defecto al darle clic */
+.sortable:focus,
+.sortable-muni:focus {
+    outline: none;
+}
+
+/* Flechas de ordenamiento - BLANCAS */
+.sortable.asc::after,
+.sortable.desc::after,
+.sortable-muni.asc::after,
+.sortable-muni.desc::after {
+    content: '';
+    position: absolute;
+    right: 8px;
+    top: 50%;
+    transform: translateY(-50%);
+    border-left: 5px solid transparent;
+    border-right: 5px solid transparent;
+}
+
+.sortable.asc::after,
+.sortable-muni.asc::after {
+    border-bottom: 5px solid white;
+    top: 45%;
+}
+
+.sortable.desc::after,
+.sortable-muni.desc::after {
+    border-top: 5px solid white;
+    top: 55%;
+}
+
+/* Encabezados de métricas (centrados) */
+.table-responsive thead th.metric-header,
+.table-responsive thead th[style*="text-align: center"] {
+    text-align: center !important;
+    min-width: 120px;
+}
+
+/* ============================= */
+/* 7. COLUMNA DE PLAZA - ANCHO LIMITADO */
+/* ============================= */
+.table-responsive thead th:nth-child(2),
+.table-responsive tbody td:nth-child(2) {
+    max-width: 300px;
+    min-width: 200px;
+    white-space: normal;
+    word-wrap: break-word;
+    line-height: 1.4;
+}
+
+/* ============================= */
+/* 8. COLUMNA STICKY (IZQUIERDA) */
+/* ============================= */
+.table-responsive tbody td:first-child,
+.table-responsive thead th:first-child,
+.table-responsive tfoot td:first-child,
+.sticky-col {
+    position: sticky;
+    left: 0;
+    z-index: 20;
+    background-color: var(--surface-color);
+    border-right: 2px solid var(--border-color);
+    font-weight: 600;
+    min-width: 150px;
+    box-shadow: 2px 0 5px rgba(0, 0, 0, 0.08);
+}
+
+/* Intersección: encabezado + columna sticky */
+.table-responsive thead th:first-child {
+    z-index: 40;
+    background: #1e293b;
+    border-right: 2px solid rgba(255, 255, 255, 0.2);
+    color: white !important;
+}
+
+/* ============================= */
+/* 9. PIE DE TABLA STICKY (INFERIOR) - CORREGIDO */
+/* ============================= */
+.table-responsive tfoot {
+    position: sticky;
+    bottom: 0;
+    z-index: 25;
+    display: table-footer-group;
+    width: 100%;
+    box-shadow: 0 -4px 10px rgba(0, 0, 0, 0.05);
+}
+
+.table-responsive tfoot td,
+.footer-total-row td {
+    background-color: var(--surface-color);
+    border-top: 3px solid var(--primary-color) !important;
+    border-bottom: none;
+    font-weight: 800;
+    color: var(--dark-color);
+    padding: 1rem 1.25rem;
+    white-space: nowrap;
+}
+
+/* Intersección: pie + columna sticky */
+.table-responsive tfoot td:first-child,
+.footer-total-row td.sticky-col {
+    z-index: 35;
+    background-color: var(--surface-color);
+    border-right: 2px solid var(--border-color);
+    border-top: 3px solid var(--primary-color) !important;
+}
+
+/* Aseguramos que el footer sea visible desde el inicio */
+.table-responsive tbody tr:last-child td {
+    border-bottom: none;
+}
+
+/* ============================= */
+/* 10. CUERPO DE LA TABLA */
+/* ============================= */
+.table-responsive tbody tr {
+    transition: background-color 0.2s ease;
+}
+
+.table-responsive tbody tr:hover {
+    background-color: rgba(37, 99, 235, 0.05);
+}
+
+.table-responsive tbody tr:hover .sticky-col,
+.table-responsive tbody tr:hover td:first-child {
+    background-color: rgba(37, 99, 235, 0.08);
+}
+
+.table-responsive tbody td {
+    padding: 1rem 1.25rem;
+    border-bottom: 1px solid var(--border-color);
+    font-size: 0.9rem;
+    color: var(--text-color);
+    white-space: nowrap;
+}
+
+/* Alineación de valores numéricos */
+.table-responsive tbody td:not(:first-child):not(:nth-child(2)):not(:nth-child(3)) {
+    text-align: center;
+}
+
+/* ============================= */
+/* 11. TABLA DE MUNICIPIOS (ESTILOS ESPECÍFICOS) */
+/* ============================= */
+#municipios-container .table-responsive thead th {
+    background: #475569;
+    color: white !important;
+}
+
+#municipios-container .table-responsive thead th:first-child {
+    background: #475569;
+}
+
+#municipios-container .table-responsive tbody td:first-child {
+    font-weight: 700;
+    color: var(--primary-color);
+    background-color: var(--surface-color);
+}
+
+/* Mantener oscurecimiento en hover para municipios */
+#municipios-container .sortable:hover,
+#municipios-container .sortable-muni:hover {
+    background-color: rgba(0, 0, 0, 0.2) !important;
+}
+
+/* ============================= */
+/* 12. ENLACES A PLAZAS */
+/* ============================= */
+.enlace-plaza {
+    font-weight: 700;
+    color: var(--primary-color);
+    text-decoration: underline;
+    text-decoration-thickness: 2px;
+    text-underline-offset: 2px;
+    transition: all var(--transition-fast);
+    cursor: pointer;
+    display: inline-block;
+    padding: 0.25rem 0;
+}
+
+.enlace-plaza:hover {
+    color: var(--primary-dark);
+    text-decoration: none;
+    transform: translateX(2px);
+}
+
+/* ============================= */
+/* 13. TÍTULOS DE SECCIÓN */
+/* ============================= */
+.section-title {
+    margin: 2rem 0 1rem 0;
+    padding-bottom: 0.75rem;
+    border-bottom: 3px solid var(--primary-color);
+    color: var(--dark-color);
+    font-size: 1.5rem;
+    font-weight: 700;
+}
+
+.section-title small {
+    font-size: 0.9rem;
+    color: var(--text-muted);
+    font-weight: 400;
+    margin-left: 0.5rem;
+}
+
+/* ============================= */
+/* 14. ESTADOS DE CARGA Y VACÍO */
+/* ============================= */
+.no-data-message {
+    text-align: center;
+    padding: 4rem 2rem;
+    background: var(--surface-color);
+    border-radius: var(--border-radius-lg);
+    border: 2px dashed var(--border-color);
+    color: var(--text-muted);
+    font-size: 1.1rem;
+}
+
+.no-data-message .icon {
+    font-size: 3rem;
+    margin-bottom: 1rem;
+    display: block;
+    opacity: 0.5;
+}
+
+.loading-spinner {
+    text-align: center;
+    padding: 3rem;
+    color: var(--text-muted);
+}
+
+/* ============================= */
+/* 15. MODO OSCURO - AJUSTES COMPLETOS */
+/* ============================= */
+[data-theme="dark"] .table-responsive thead th {
+    background: #0f172a !important;
+    border-bottom-color: #334155;
+    color: white !important;
+}
+
+[data-theme="dark"] #municipios-container .table-responsive thead th {
+    background: #1e293b !important;
+    color: white !important;
+}
+
+/* Footer en modo oscuro - CORREGIDO */
+[data-theme="dark"] .table-responsive tfoot td,
+[data-theme="dark"] .footer-total-row td,
+[data-theme="dark"] .table-responsive tfoot td:first-child,
+[data-theme="dark"] .footer-total-row td.sticky-col {
+    background-color: #1e293b;
+    color: #f8fafc;
+    border-top: 3px solid #3b82f6 !important;
+}
+
+[data-theme="dark"] .sticky-col,
+[data-theme="dark"] .table-responsive tbody td:first-child {
+    background-color: #0f172a;
+    border-right-color: #334155;
+}
+
+[data-theme="dark"] .table-responsive tbody tr:hover {
+    background-color: #1e293b;
+}
+
+[data-theme="dark"] .table-responsive tbody tr:hover .sticky-col,
+[data-theme="dark"] .table-responsive tbody tr:hover td:first-child {
+    background-color: #1e293b;
+}
+
+[data-theme="dark"] .winner-card {
+    background: linear-gradient(135deg, #0f172a 0%, #1e293b 100%);
+}
+
+[data-theme="dark"] .winner-card .metric-total {
+    color: #f8fafc;
+}
+
+[data-theme="dark"] .winner-card .leader-section {
+    background: #1e293b;
+    border-color: #334155;
+}
+
+[data-theme="dark"] .enlace-plaza {
+    color: #60a5fa;
+}
+
+[data-theme="dark"] .enlace-plaza:hover {
+    color: #93c5fd;
+}
+
+/* ============================= */
+/* 16. RESPONSIVE */
+/* ============================= */
+@media (max-width: 768px) {
+    .winners-grid {
+        grid-template-columns: 1fr 1fr;
+        gap: 1rem;
+    }
+
+    .winner-card {
+        padding: 1.25rem;
+    }
+
+    .winner-card .metric-total {
+        font-size: 1.5rem;
+    }
+
+    .table-responsive {
+        max-height: 500px;
+        margin: 1.5rem 0;
+    }
+
+    .table-responsive table {
+        min-width: 1000px;
+    }
+
+    .table-responsive thead th {
+        padding: 0.75rem 1rem;
+        font-size: 0.85rem;
+    }
+
+    .table-responsive tbody td {
+        padding: 0.75rem 1rem;
+        font-size: 0.85rem;
+    }
+
+    .table-responsive tfoot td {
+        padding: 0.75rem 1rem;
+    }
+
+    .sticky-col,
+    .table-responsive tbody td:first-child {
+        min-width: 120px;
+    }
+
+    .section-title {
+        font-size: 1.25rem;
+    }
+}
+
+@media (max-width: 480px) {
+    .winners-grid {
+        grid-template-columns: 1fr;
+    }
+
+    .table-responsive {
+        max-height: 450px;
+    }
+
+    .table-responsive table {
+        min-width: 900px;
+    }
+
+    .sticky-col,
+    .table-responsive tbody td:first-child {
+        min-width: 100px;
+    }
+
+    #top-state-select {
+        max-width: 100%;
+    }
+
+    .section-title small {
+        display: block;
+        margin-left: 0;
+        margin-top: 0.25rem;
+    }
+}
+
+/* ============================= */
+/* 17. UTILIDADES */
+/* ============================= */
+.text-primary { color: var(--primary-color) !important; }
+.text-success { color: #059669 !important; font-weight: 600; }
+.text-muted-soft { color: #cbd5e1; }
+.font-bold { font-weight: 700; }
+.text-center { text-align: center; }
+.text-right { text-align: right; }
+.mb-2 { margin-bottom: 0.5rem; }
+.mb-3 { margin-bottom: 1rem; }
+.mb-4 { margin-bottom: 1.5rem; }
+.mt-3 { margin-top: 1rem; }
+.mt-4 { margin-top: 1.5rem; }

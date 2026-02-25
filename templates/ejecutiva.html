@@ -1,0 +1,1060 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Buscador de Plazas v20(NU_INF) - Ejecutiva</title>
+    
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css">
+    
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/sty.css') }}">
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/plaza-details.css') }}">
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/comparativas.css') }}">
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/rank.css') }}">
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/mapa.css') }}">
+
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css" />
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet.markercluster/1.5.3/MarkerCluster.min.css" />
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet.markercluster/1.5.3/MarkerCluster.Default.min.css" />
+    
+    <style>
+        .fa-solid, .fa-regular, .fa-brands { margin-right: 6px; }
+        .stat-icon i, .resumen-icon i, .metrica-icon i { margin-right: 0; }
+        .btn i { margin-right: 8px; }
+        .icon-space { margin-right: 8px; }
+
+        /* --- FIX: CSS PARA FIJAR PRIMERA COLUMNA (STICKY) --- */
+        .comparativa-estados-container .table-responsive {
+            overflow-x: auto;
+            position: relative;
+            width: 100%;
+            border: 1px solid var(--border-color, #e2e8f0);
+        }
+
+        #tabla-estados-comparativa {
+            border-collapse: separate !important; 
+            border-spacing: 0;
+            width: 100%;
+        }
+
+        /* Encabezado Fijo */
+        #tabla-estados-comparativa thead th:first-child {
+            position: sticky;
+            left: 0;
+            z-index: 20;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            border-right: 2px solid rgba(0,0,0,0.1);
+            min-width: 180px;
+        }
+
+        /* Columna de Contenido Fija */
+        #tabla-estados-comparativa tbody td:first-child {
+            position: sticky;
+            left: 0;
+            z-index: 10;
+            background-color: #ffffff; /* Fondo sólido */
+            border-right: 2px solid #e2e8f0;
+            border-bottom: 1px solid #e2e8f0;
+            text-align: left !important; /* Alineado a la izquierda */
+            padding-left: 1.5rem !important;
+            font-weight: 700;
+            color: #334155;
+        }
+
+        /* Hover */
+        #tabla-estados-comparativa tbody tr:hover td:first-child {
+            background-color: #f8f9ff;
+        }
+
+        /* Modo Oscuro (Corrección básica) */
+        body.dark-mode #tabla-estados-comparativa tbody td:first-child {
+            background-color: #1e293b;
+            color: #e2e8f0;
+            border-right: 2px solid #334155;
+        }
+
+        /* --- NUEVO CSS PARA EL LAYOUT DE ESTADÍSTICAS --- */
+        
+        /* Contenedor Grid para las métricas superiores */
+        .metricas-avanzadas-grid {
+            display: grid;
+            grid-template-columns: 1fr 1fr; /* Dos columnas iguales */
+            gap: 1.5rem;
+            margin-bottom: 2rem;
+        }
+
+        /* La tercera tarjeta (Comparativo Distribución) ocupa todo el ancho */
+        .metricas-avanzadas-grid .metrica-avanzada-card:nth-child(3) {
+            grid-column: 1 / -1; /* Ocupa desde la línea 1 hasta el final */
+        }
+
+        /* Estilo base de las tarjetas para asegurar altura igual */
+        .metrica-avanzada-card {
+            background: #fff;
+            border-radius: 8px;
+            padding: 1.5rem;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.05);
+            border: 1px solid #e2e8f0;
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+        }
+
+        /* Separación clara para Tendencias */
+        .tendencias-container {
+            margin-top: 3rem;
+            padding-top: 2rem;
+            border-top: 2px dashed #cbd5e1; /* Línea divisoria visual */
+        }
+
+        /* Responsive: En móviles todo va en una sola columna */
+        @media (max-width: 768px) {
+            .metricas-avanzadas-grid {
+                grid-template-columns: 1fr;
+            }
+            .metricas-avanzadas-grid .metrica-avanzada-card:nth-child(3) {
+                grid-column: auto;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div style="position: absolute; top: 20px; left: 20px; z-index: 100;">
+        <a href="{{ url_for('inicio') }}" class="btn btn-secondary" style="text-decoration: none;">
+            <i class="fa-solid fa-left-long"></i> Cambiar Versión
+        </a>
+    </div>
+
+    <div class="container">
+        <div id="alert-container" class="alert-container"></div>
+
+        <div class="theme-controls">
+            <button class="theme-btn" id="theme-light" title="Modo Claro"><i class="fa-solid fa-sun"></i></button>
+            <button class="theme-btn" id="theme-dark" title="Modo Oscuro"><i class="fa-solid fa-moon"></i></button>
+        </div>
+
+        <div id="welcome-screen" class="view">
+            <h1>
+                <img src="{{ url_for('static', filename='img/tr.png') }}" alt="Logo" class="header-logo"> 
+                Buscador de Plazas (Versión Ejecutiva)
+            </h1>
+            <p>Selecciona un método para explorar la información.</p>
+            <div class="option-cards">
+                <a href="#filter-search-view" class="card">
+                    <h3><i class="fa-solid fa-filter"></i> Búsqueda Avanzada</h3>
+                    <p>Encuentra la plaza paso a paso, seleccionando la ubicación.</p>
+                </a>
+                <a href="#map-view" class="card">
+                    <h3><i class="fa-solid fa-map-location-dot"></i> Mapa Interactivo</h3>
+                    <p>Visualiza todas las plazas geográficamente.</p>
+                </a>
+                <a href="#stats-view" class="card">
+                    <h3><i class="fa-solid fa-chart-simple"></i> Estadísticas</h3>
+                    <p>Visualiza datos generales y métricas de desempeño.</p>
+                </a>
+            </div>
+        </div>
+
+        <div id="map-view" class="view hidden">
+            <h1><i class="fa-solid fa-map"></i> Mapa de Ubicaciones</h1>
+            
+            <div id="map-container">
+                <div id="map-loading-overlay">
+                    <div class="map-spinner"></div>
+                    <div id="map-loading-text">Inicializando mapa...</div>
+                </div>
+                <div id="map"></div>
+            </div>
+
+            <a href="#welcome-screen" class="back-button"><i class="fa-solid fa-arrow-left"></i> Volver al inicio</a>
+        </div>
+
+        <div id="top-plazas-view" class="view hidden">
+            <h1><i class="fa-solid fa-trophy"></i> Ranking de Plazas por Estado</h1>
+            <p style="text-align: center; color: var(--text-muted); margin-bottom: 2rem;">
+                Selecciona un estado para ver los totales estatales y las plazas líderes en cada indicador.
+            </p>
+
+            <div class="search-container" style="max-width: 600px; margin: 0 auto 2rem;">
+                <label for="top-state-select" style="display:block; margin-bottom: 0.5rem; font-weight:bold;">Selecciona Estado:</label>
+                <select id="top-state-select" class="form-select" style="width: 100%; padding: 10px; border-radius: 8px; border: 1px solid #ccc;">
+                    <option value="">Cargando estados...</option>
+                </select>
+            </div>
+
+            <div id="top-winners-container" class="hidden">
+                <div class="winners-grid" style="display: grid; grid-template-columns: repeat(auto-fill, minmax(250px, 1fr)); gap: 15px; margin-bottom: 3rem;">
+                </div>
+
+                <h3 class="seccion-titulo" style="margin-top: 2rem; padding-bottom: 0.5rem; border-bottom: 2px solid #1e293b;">
+                    <i class="fa-solid fa-clipboard-list"></i> Detalle por Plaza
+                </h3>
+                <p style="text-align: center; color: #64748b; font-size: 0.9rem; margin-bottom: 1.5rem;">
+                    Haz clic en cualquier Clave de Plaza para ver su detalle completo
+                </p>
+                <div class="table-responsive" style="margin-bottom: 3rem;">
+                    <table id="top-plazas-table" class="cn-table">
+                        <thead>
+                            <tr id="top-plazas-thead">
+                                </tr>
+                        </thead>
+                        <tbody id="top-plazas-tbody">
+                            </tbody>
+                        <tfoot id="top-plazas-tfoot" style="background-color: #e2e8f0; font-weight: bold; border-top: 2px solid #4c8edf;">
+                            </tfoot>
+                    </table>
+                </div>
+
+                <h3 class="seccion-titulo" style="margin-top: 2rem; padding-bottom: 0.5rem; border-bottom: 2px solid #475569;">
+                    <i class="fa-solid fa-city"></i> Datos por Municipio
+                </h3>
+                <p style="text-align: center; color: #64748b; font-size: 0.9rem; margin-bottom: 1.5rem;">
+                    Totales acumulados de todas las plazas por municipio
+                </p>
+                <div class="table-responsive">
+                    <table id="municipios-table" class="cn-table">
+                        <thead>
+                            <tr id="municipios-thead">
+                                </tr>
+                        </thead>
+                        <tbody id="municipios-tbody">
+                            </tbody>
+                        <tfoot id="municipios-tfoot" style="background-color: #f1f5f9; font-weight: bold; border-top: 2px solid #cbd5e1;">
+                            </tfoot>
+                    </table>
+                </div>
+            </div>
+
+            <a href="#welcome-screen" class="back-button"><i class="fa-solid fa-arrow-left"></i> Volver al inicio</a>
+        </div>
+
+        <div id="key-search-view" class="view hidden">
+            <h1><i class="fa-solid fa-magnifying-glass"></i> Búsqueda por Clave</h1>
+            <div class="search-container">
+                <div class="search-box">
+                    <input type="text" id="clave-input" placeholder="Escribe la Clave_Plaza aquí...">
+                    <button id="search-by-key-button" class="btn btn-primary"><i class="fa-solid fa-magnifying-glass"></i> Buscar</button>
+                    <div id="key-loader" class="loader hidden"></div>
+                </div>
+            </div>
+            <a href="#welcome-screen" class="back-button"><i class="fa-solid fa-arrow-left"></i> Volver al inicio</a>
+        </div>
+
+        <div id="filter-search-view" class="view hidden">
+            <h1><i class="fa-solid fa-filter"></i> Búsqueda Avanzada</h1>
+
+            <div class="progress-container">
+                <div class="progress-line">
+                    <div class="progress-fill" id="progress-fill"></div>
+                </div>
+                <div class="progress-steps">
+                    <div class="progress-step active" data-step="estado">Estado</div>
+                    <div class="progress-step" data-step="zona">Zona</div>
+                    <div class="progress-step" data-step="municipio">Municipio</div>
+                    <div class="progress-step" data-step="localidad">Localidad</div>
+                    <div class="progress-step" data-step="clave">Plaza</div>
+                </div>
+            </div>
+
+            <div class="search-controls">
+                <button id="reset-search-button" class="btn btn-secondary">
+                    <i class="fa-solid fa-rotate-left"></i> Reiniciar Búsqueda
+                </button>
+            </div>
+
+            <div class="search-container" id="filter-cascade-container">
+                <div class="filter-step" data-step="estado">
+                    <div class="step-indicator active">1</div>
+                    <div class="step-content">
+                        <label for="state-select">Estado</label>
+                        <select id="state-select">
+                            <option value="">Cargando...</option>
+                        </select>
+                    </div>
+                </div>
+                <div class="filter-step hidden" data-step="zona">
+                    <div class="step-indicator">2</div>
+                    <div class="step-content">
+                        <label for="zona-select">Zona</label>
+                        <select id="zona-select" disabled>
+                            <option value="">Selecciona un estado primero</option>
+                        </select>
+                    </div>
+                </div>
+                <div class="filter-step hidden" data-step="municipio">
+                    <div class="step-indicator">3</div>
+                    <div class="step-content">
+                        <label for="municipio-select">Municipio</label>
+                        <select id="municipio-select" disabled>
+                            <option value="">Selecciona una zona primero</option>
+                        </select>
+                    </div>
+                </div>
+                <div class="filter-step hidden" data-step="localidad">
+                    <div class="step-indicator">4</div>
+                    <div class="step-content">
+                        <label for="localidad-select">Localidad</label>
+                        <select id="localidad-select" disabled>
+                            <option value="">Selecciona un municipio primero</option>
+                        </select>
+                    </div>
+                </div>
+                <div class="filter-step hidden" data-step="clave">
+                    <div class="step-indicator">5</div>
+                    <div class="step-content">
+                        <label for="clave-select">Clave de Plaza</label>
+                        <select id="clave-select" disabled>
+                            <option value="">Selecciona una localidad primero</option>
+                        </select>
+                    </div>
+                </div>
+                
+                <button id="search-filter-button" class="btn btn-primary" style="margin-top: 1.5rem; display: flex; align-items: center; gap: 0.5rem;">
+                    <i class="fa-solid fa-magnifying-glass-location"></i> Buscar Plaza
+                </button>
+                
+                <div id="filter-loader" class="loader hidden" style="margin: 1rem auto 0;"></div>
+            </div>
+
+            <a href="#welcome-screen" class="back-button"><i class="fa-solid fa-arrow-left"></i> Volver al inicio</a>
+        </div>
+
+        <div id="results-view" class="view hidden">
+            <div id="results-content"></div>
+            <button class="back-button" id="back-to-search-button"><i class="fa-solid fa-arrow-left"></i> Volver a la búsqueda</button>
+        </div>
+
+        <div id="stats-view" class="view hidden">
+            <h1><i class="fa-solid fa-chart-simple"></i> Estadísticas</h1>
+            
+            <div class="stats-nav">
+                <div class="stats-nav-options">
+                    <button class="stats-nav-btn active" data-subview="general-stats">
+                        <span class="nav-icon"><i class="fa-solid fa-chart-pie"></i></span>
+                        <span class="nav-text">Estadísticas</span>
+                    </button>
+                    <button class="stats-nav-btn" data-subview="comparativas-stats">
+                        <span class="nav-icon"><i class="fa-solid fa-arrow-trend-up"></i></span>
+                        <span class="nav-text">Comparativas por Período</span>
+                    </button>
+                </div>
+            </div>
+            
+            <div class="stats-subview-container">
+                <div id="general-stats-view" class="stats-subview">
+                    <div class="stats-grid">
+                        <div class="stat-card">
+                            <div class="stat-icon"><i class="fa-solid fa-building-columns"></i></div>
+                            <span class="stat-label">Total de Plazas</span>
+                            <span class="stat-number" id="total-plazas">0</span>
+                            <div class="stat-sub-number" id="plazas-operacion">0 en operación</div>
+                            <div class="stat-description">Plazas en operación</div>
+                        </div>
+                        
+                        <div class="stat-card">
+                            <div class="stat-icon"><i class="fa-solid fa-map-location-dot"></i></div>
+                            <span class="stat-label">Estados con Plazas</span>
+                            <span class="stat-number" id="total-estados">0</span>
+                            <div class="stat-description">Cobertura a nivel nacional</div>
+                        </div>
+                    </div>
+
+                    <div class="stats-section">
+                        <h2>Estados Destacados</h2>
+                        <div class="stats-grid">
+                            <div class="stat-card highlight-card">
+                                <div class="stat-icon"><i class="fa-solid fa-medal"></i></div>
+                                <span class="stat-label">Estado con Más Plazas</span>
+                                <span class="stat-name" id="estado-mas-plazas-nombre">-</span>
+                                <span class="stat-number" id="estado-mas-plazas-cantidad">0</span>
+                                <div class="stat-description">Mayor Número de Plazas</div>
+                            </div>
+                            
+                            <div class="stat-card highlight-card">
+                                <div class="stat-icon"><i class="fa-solid fa-satellite-dish"></i></div>
+                                <span class="stat-label">Mayor número de PC con Conectividad</span>
+                                <span class="stat-name" id="estado-mayor-conectividad-nombre">-</span>
+                                <span class="stat-number" id="estado-mayor-conectividad-porcentaje">0%</span>
+                                <div class="stat-description">Porcentaje de conectividad instalada</div>
+                            </div>
+                            
+                            <div class="stat-card highlight-card">
+                                <div class="stat-icon"><i class="fa-solid fa-circle-pause"></i></div>
+                                <span class="stat-label">Estado con más PC en Suspensión Temporal</span>
+                                <span class="stat-name" id="estado-mas-suspension-nombre">-</span>
+                                <span class="stat-number" id="estado-mas-suspension-porcentaje">0%</span>
+                                <div class="stat-description">Plazas en suspensión temporal</div>
+                            </div>
+
+                            <div class="stat-card highlight-card">
+                                <div class="stat-icon"><i class="fa-solid fa-shapes"></i></div>
+                                <span class="stat-label">#1 Estado con más CN Inicial</span>
+                                <span class="stat-name" id="estado-mas-cn-inicial-nombre">-</span>
+                                <span class="stat-number" id="estado-mas-cn-inicial-cantidad">0</span>
+                                <div class="stat-description">Mayor CN Inicial</div>
+                            </div>
+                            
+                            <div class="stat-card highlight-card">
+                                <div class="stat-icon"><i class="fa-solid fa-school"></i></div>
+                                <span class="stat-label">#1 Estado con más CN Primaria</span>
+                                <span class="stat-name" id="estado-mas-cn-primaria-nombre">-</span>
+                                <span class="stat-number" id="estado-mas-cn-primaria-cantidad">0</span>
+                                <div class="stat-description">Mayor CN Primaria</div>
+                            </div>
+                            
+                            <div class="stat-card highlight-card">
+                                <div class="stat-icon"><i class="fa-solid fa-book-open"></i></div>
+                                <span class="stat-label">#1 Estado con más CN Secundaria</span>
+                                <span class="stat-name" id="estado-mas-cn-secundaria-nombre">-</span>
+                                <span class="stat-number" id="estado-mas-cn-secundaria-cantidad">0</span>
+                                <div class="stat-description">Mayor CN Secundaria</div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="cn-stats-section">
+                        <h2><i class="fa-solid fa-book"></i> Estadísticas Conclusiones de Nivel (CN)</h2>
+                        
+                        <div id="cn-resumen-cards" class="cn-grid">
+                            <div class="cn-card">
+                                <h4><i class="fa-solid fa-chart-simple"></i> Resumen Nacional</h4>
+                                <div class="cn-stats-grid">
+                                    <div class="cn-stat-item" id="cn-inicial-item">
+                                        <span class="cn-stat-label">CN Inicial</span>
+                                        <span class="cn-stat-value" id="cn-inicial-valor">0</span>
+                                        <span class="cn-stat-subvalue" id="cn-inicial-subvalor">Plazas en operación: 0</span>
+                                    </div>
+                                    <div class="cn-stat-item" id="cn-primaria-item">
+                                        <span class="cn-stat-label">CN Primaria</span>
+                                        <span class="cn-stat-value" id="cn-primaria-valor">0</span>
+                                        <span class="cn-stat-subvalue" id="cn-primaria-subvalor">Plazas en operación: 0</span>
+                                    </div>
+                                    <div class="cn-stat-item" id="cn-secundaria-item">
+                                        <span class="cn-stat-label">CN Secundaria</span>
+                                        <span class="cn-stat-value" id="cn-secundaria-valor">0</span>
+                                        <span class="cn-stat-subvalue" id="cn-secundaria-subvalor">Plazas en operación: 0</span>
+                                    </div>
+                                    <div class="cn-stat-item cn-total-item" id="cn-total-item">
+                                        <span class="cn-stat-label">CN TOTAL</span>
+                                        <span class="cn-stat-value" id="cn-total-valor">0</span>
+                                        <span class="cn-stat-subvalue" id="cn-total-subvalor">Plazas en operación: 0</span>
+                                    </div>
+                                </div>
+                            </div>
+                            
+                            <div class="cn-card" id="top5-card">
+                                <h4><i class="fa-solid fa-trophy"></i> Top 5 Estados - CN Total</h4>
+                                <div class="cn-stats-grid" id="top5-grid">
+                                </div>
+                            </div>
+                        </div>
+                        
+                        <div class="cn-top5-grid">
+                            <div class="cn-top5-section">
+                                <h3><i class="fa-solid fa-shapes"></i> Top 5 Estados - CN Inicial</h3>
+                                <div id="cn-top5-inicial-list" class="top10-grid">
+                                </div>
+                            </div>
+                            
+                            <div class="cn-top5-section">
+                                <h3><i class="fa-solid fa-school"></i> Top 5 Estados - CN Primaria</h3>
+                                <div id="cn-top5-primaria-list" class="top10-grid">
+                                </div>
+                            </div>
+                            
+                            <div class="cn-top5-section">
+                                <h3><i class="fa-solid fa-book-open"></i> Top 5 Estados - CN Secundaria</h3>
+                                <div id="cn-top5-secundaria-list" class="top10-grid">
+                                </div>
+                            </div>
+                        </div>
+
+                        <h3><i class="fa-solid fa-clipboard-list"></i> Datos Detallados por Estado</h3>
+                        <div class="cn-table-container">
+                            <table id="cn-estados-table" class="cn-table">
+                                <thead>
+                                    <tr>
+                                        <th>
+                                            <button class="sort-btn" data-sort="estado" data-order="asc">
+                                                Estado ▲
+                                            </button>
+                                        </th>
+                                        <th>
+                                            <button class="sort-btn" data-sort="total_plazas" data-order="desc">
+                                                Total Plazas ▼
+                                            </button>
+                                        </th>
+                                        <th>
+                                            <button class="sort-btn" data-sort="cn_inicial" data-order="desc">
+                                                CN Inicial ▼
+                                            </button>
+                                        </th>
+                                        <th>
+                                            <button class="sort-btn" data-sort="cn_primaria" data-order="desc">
+                                                CN Primaria ▼
+                                            </button>
+                                        </th>
+                                        <th>
+                                            <button class="sort-btn" data-sort="cn_secundaria" data-order="desc">
+                                                CN Secundaria ▼
+                                            </button>
+                                        </th>
+                                        <th>
+                                            <button class="sort-btn" data-sort="cn_total" data-order="desc">
+                                                CN Total ▼
+                                            </button>
+                                        </th>
+                                        <th>
+                                            <button class="sort-btn" data-sort="pct_nacional" data-order="desc">
+                                                % Sobre Nacional ▼
+                                            </button>
+                                        </th>
+                                    </tr>
+                                </thead>
+                                <tbody id="cn-estados-tbody">
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+                </div>
+
+                <div id="comparativas-stats-view" class="stats-subview hidden">
+                    <div class="comparativas-container">
+                        <h2><i class="fa-solid fa-arrow-trend-up"></i> Comparativas por Período</h2>
+                        <p>Compara datos entre diferentes períodos</p>
+                        
+                        <div class="periodo-selector">
+                            <h3>Seleccionar Períodos a Comparar</h3>
+                            <div class="selector-grid">
+                                <div class="selector-group">
+                                    <label for="comparativa-year">Año</label>
+                                    <select id="comparativa-year">
+                                        <option value="">Cargando años...</option>
+                                    </select>
+                                </div>
+                                <div class="selector-group">
+                                    <label for="comparativa-periodo1">Período 1</label>
+                                    <select id="comparativa-periodo1" disabled>
+                                        <option value="">Selecciona año primero</option>
+                                    </select>
+                                </div>
+                                <div class="selector-group">
+                                    <label for="comparativa-periodo2">Período 2</label>
+                                    <select id="comparativa-periodo2" disabled>
+                                        <option value="">Selecciona año primero</option>
+                                    </select>
+                                </div>
+                            </div>
+                            <button id="comparar-periodos-btn" class="comparar-btn" disabled>
+                                <i class="fa-solid fa-rotate"></i> Comparar Períodos
+                            </button>
+                        </div>
+                        
+                        <div id="comparativa-resultados" class="comparativa-resultados hidden">
+                            </div>
+                    </div>
+                </div>
+            </div>
+
+            <a href="#welcome-screen" class="back-button"><i class="fa-solid fa-arrow-left"></i> Volver al inicio</a>
+        </div>
+
+        <div id="estados-view" class="view hidden">
+            <h1><i class="fa-solid fa-earth-americas"></i> Estados con Plazas</h1>
+            
+            <div class="search-container">
+                <div class="states-search-container">
+                    <input type="text" class="states-search-input" id="estados-search-input" 
+                           placeholder="Buscar estado...">
+                </div>
+                
+                <div class="all-states-grid" id="estados-grid">
+                    </div>
+            </div>
+            
+            <a href="#welcome-screen" class="back-button"><i class="fa-solid fa-arrow-left"></i> Volver al inicio</a>
+        </div>
+
+        <div id="plazas-por-estado-view" class="view hidden">
+            <h1 id="plazas-por-estado-title"><i class="fa-solid fa-building-columns"></i> Plazas del Estado</h1>
+            
+            <div class="search-container">
+                <div class="states-search-container">
+                    <input type="text" class="states-search-input" id="plazas-search-input" 
+                           placeholder="Buscar plaza por clave, municipio o localidad...">
+                </div>
+                
+                <div id="plazas-list-container" class="plazas-list-view">
+                    </div>
+            </div>
+            
+            <a href="#estados-view" class="back-button"><i class="fa-solid fa-arrow-left"></i> Volver a Estados</a>
+        </div>
+    </div>
+
+    <div id="excel-update-info" class="excel-update-minimal">
+        <span class="update-icon"><i class="fa-regular fa-calendar-days"></i></span>
+        <span class="update-text"> Periodo a: </span>
+        <span id="update-date" class="update-date">Cargando...</span>
+    </div>
+
+    <div id="global-loader" class="loader-overlay hidden">
+        <div class="loader-container">
+            <div class="loader-spinner">
+                <div class="spinner-circle"></div>
+                <div class="spinner-circle"></div>
+                <div class="spinner-circle"></div>
+            </div>
+            <div class="loader-content">
+                <h3 class="loader-title">Procesando información</h3>
+                <p class="loader-message">Estamos cargando los datos solicitados, por favor espere...</p>
+                <div class="loader-progress">
+                    <div class="loader-progress-bar"></div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div id="image-modal" class="modal-overlay">
+        <div class="modal-content">
+            <div class="modal-counter">
+                <span id="modal-current">1</span> / <span id="modal-total">1</span>
+            </div>
+            <div class="modal-controls">
+                <button class="modal-btn modal-close" title="Cerrar (Esc)"><i class="fa-solid fa-xmark"></i></button>
+            </div>
+            <button class="modal-nav modal-prev" title="Anterior (←)"><i class="fa-solid fa-chevron-left"></i></button>
+            <button class="modal-nav modal-next" title="Siguiente (→)"><i class="fa-solid fa-chevron-right"></i></button>
+            <img class="modal-image" src="" alt="">
+            <div class="modal-info">
+                <div class="modal-filename" id="modal-filename">Imagen</div>
+                <div class="modal-source" id="modal-source">Desde Google Drive</div>
+            </div>
+        </div>
+    </div>
+
+    <template id="plaza-results-template">
+        <div class="plaza-results-container">
+            <h1 data-bind="clave_plaza">Detalles de la Plaza</h1>
+            
+            <div class="results-card">
+                <div class="direccion-completa" data-bind="direccion_completa"></div>
+                <div style="text-align:center; margin: 1.5rem 0;">
+                    <a data-bind="google_maps_url" target="_blank" class="btn btn-primary" rel="noopener noreferrer"><i class="fa-solid fa-map-location-dot"></i> Ver en Google Maps</a>
+                </div>
+            </div>
+            
+            <div class="results-card">
+                <h2>Datos Generales</h2>
+                <div class="info-grid" data-bind="grid_ubicacion"></div>
+            </div>
+
+            <div class="results-card">
+                <h2>Personas de Atención en PC</h2>
+                <div class="info-grid" data-bind="grid_personal"></div>
+            </div>
+            
+            <div class="results-card">
+                <div class="card-header-row" style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 10px;">
+                    <h2 style="margin: 0;">Información de Productividad</h2>
+                    <div class="period-selector-container">
+                        <label for="atencion-periodo-select" style="font-size: 0.85rem; color: #666; margin-right: 5px;">Período:</label>
+                        <select id="atencion-periodo-select" class="periodo-select" style="padding: 5px; border-radius: 4px; border: 1px solid #ccc;">
+                        </select>
+                    </div>
+                </div>
+                <div class="info-grid" data-bind="grid_atencion"></div>
+            </div>
+            
+            <div class="results-card">
+                <h2>Información del Local</h2>
+                <div class="info-grid" data-bind="grid_infraestructura"></div>
+            </div>
+
+            <div class="results-card">
+                <h2>Inventario de Equipos y Mobiliario</h2>
+                <div class="info-grid" data-bind="grid_inventario"></div>
+            </div>
+                
+            <div class="results-card">
+                <h2><i class="fa-regular fa-image"></i> Imágenes de la Plaza</h2>
+                <div class="images-grid" data-bind="images_grid"></div>
+            </div>
+        </div>
+    </template>
+
+    <template id="image-item-template">
+        <div class="image-container">
+            <img src="" alt="Imagen de la plaza" loading="lazy" class="plaza-image"
+                 onload="this.classList.add('loaded')"
+                 onerror="this.style.display='none'; console.error('Error cargando imagen:', this.src)">
+            <div class="image-source"><i class="fa-solid fa-rotate"></i></div>
+            <div class="image-loading">Cargando imagen...</div>
+        </div>
+    </template>
+
+    <template id="no-images-template">
+        <div class="no-images"><i class="fa-solid fa-camera"></i> No se encontraron imágenes para esta plaza</div>
+    </template>
+
+    <template id="comparativa-resultados-template">
+        <div class="comparativa-resumen-container">
+            
+            <div class="resumen-ejecutivo" style="margin-bottom: 2rem; background: white; padding: 1.5rem; border-radius: 8px; border: 1px solid #e9ecef;">
+                <h4 class="seccion-titulo"><i class="fa-solid fa-clipboard-list"></i> Resumen</h4>
+                <div class="resumen-content">
+                    <div class="resumen-item">
+                        <span class="resumen-label">Período Analizado:</span>
+                        <span class="resumen-valor" data-bind="resumen_periodo">-</span>
+                    </div>
+                    <div class="resumen-item">
+                        <span class="resumen-label">Tendencia General:</span>
+                        <span class="resumen-valor" data-bind="resumen_tendencia">-</span>
+                    </div>
+                    <div class="resumen-item">
+                        <span class="resumen-label">Recomendación:</span>
+                        <span class="resumen-valor" data-bind="resumen_recomendacion">-</span>
+                    </div>
+                    <div class="resumen-item">
+                        <span class="resumen-label">Estados con Crecimiento:</span>
+                        <span class="resumen-valor" data-bind="resumen_estados_crecimiento">0</span>
+                    </div>
+                    <div class="resumen-item">
+                        <span class="resumen-label">Estados con Decrecimiento:</span>
+                        <span class="resumen-valor" data-bind="resumen_estados_decrecimiento">0</span>
+                    </div>
+                </div>
+            </div>
+
+            <div class="resumen-general-grid">
+                <h3 class="seccion-titulo"><i class="fa-solid fa-chart-simple"></i> Resumen General de la Comparación</h3>
+                <div class="resumen-cards">
+                    <div class="resumen-card">
+                        <div class="resumen-icon"><i class="fa-regular fa-calendar-days"></i></div>
+                        <div class="resumen-content">
+                            <span class="resumen-label">Período 1</span>
+                            <span class="resumen-valor" data-bind="total_periodo1">0</span>
+                            <span class="resumen-desc">Total Plazas</span>
+                        </div>
+                    </div>
+                    
+                    <div class="resumen-card">
+                        <div class="resumen-icon"><i class="fa-regular fa-calendar-days"></i></div>
+                        <div class="resumen-content">
+                            <span class="resumen-label">Período 2</span>
+                            <span class="resumen-valor" data-bind="total_periodo2">0</span>
+                            <span class="resumen-desc">Total Plazas</span>
+                        </div>
+                    </div>
+                    
+                    <div class="resumen-card diferencia-card">
+                        <div class="resumen-icon"><i class="fa-solid fa-arrow-trend-up"></i></div>
+                        <div class="resumen-content">
+                            <span class="resumen-label">Diferencia</span>
+                            <span class="resumen-valor" data-bind="diferencia_total">0</span>
+                            <span class="resumen-desc" data-bind="tendencia_diferencia">Variación</span>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <div class="analisis-avanzado-container">
+                <h3 class="seccion-titulo"><i class="fa-solid fa-chart-line"></i> Análisis Estadístico</h3>
+                
+                <div class="metricas-avanzadas-grid">
+                    <div class="metrica-avanzada-card">
+                        <div class="metrica-avanzada-header">
+                            <span class="metrica-icon"><i class="fa-solid fa-chart-pie"></i></span>
+                            <h4>Tasa de Crecimiento</h4>
+                        </div>
+                        <div class="metrica-avanzada-content">
+                            <div class="metrica-valor" data-bind="tasa_crecimiento">0%</div>
+                            <div class="metrica-descripcion">Crecimiento porcentual CN </div>
+                            <div class="metrica-detalle" data-bind="detalle_crecimiento">Basado en el cambio neto</div>
+                        </div>
+                    </div>
+                    
+                    <div class="metrica-avanzada-card">
+                        <div class="metrica-avanzada-header">
+                            <span class="metrica-icon"><i class="fa-solid fa-rocket"></i></span>
+                            <h4>Estado con más Crecimiento</h4>
+                        </div>
+                        <div class="metrica-avanzada-content">
+                            <div class="metrica-valor-estado" data-bind="estado_mas_dinamico">N/A</div>
+                            <div class="metrica-descripcion">Mayor cambio absoluto</div>
+                            <div class="metrica-detalle" data-bind="detalle_dinamico">Variación absoluta CN</div>
+                        </div>
+                    </div>
+
+                    <div class="metrica-avanzada-card">
+                        <div class="metrica-avanzada-header">
+                            <span class="metrica-icon"><i class="fa-solid fa-chart-simple"></i></span>
+                            <h4>Comparativo Distribución CN</h4>
+                        </div>
+                        <div class="metrica-avanzada-content">
+                            <div class="distribucion-cn-container" data-bind="distribucion_cn_comparativa">
+                                </div>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="tendencias-container">
+                    <h4><i class="fa-solid fa-clipboard-list"></i> Tendencias por Nivel</h4>
+                    <div class="tendencias-grid">
+                        <div class="tendencia-categoria">
+                            <div class="tendencia-header">
+                                <span class="tendencia-icon"><i class="fa-solid fa-shapes"></i></span>
+                                <h5>CN Inicial</h5>
+                            </div>
+                            <div class="tendencia-content">
+                                <div class="tendencia-stats">
+                                    <span class="tendencia-valor" data-bind="tendencia_inicial_valor">+0%</span>
+                                    <span class="tendencia-desc" data-bind="tendencia_inicial_desc">Crecimiento</span>
+                                </div>
+                                <div class="tendencia-detalle" data-bind="tendencia_inicial_detalle"></div>
+                            </div>
+                        </div>
+
+                        <div class="tendencia-categoria">
+                            <div class="tendencia-header">
+                                <span class="tendencia-icon"><i class="fa-solid fa-school"></i></span>
+                                <h5>CN Primaria</h5>
+                            </div>
+                            <div class="tendencia-content">
+                                <div class="tendencia-stats">
+                                    <span class="tendencia-valor" data-bind="tendencia_primaria_valor">+0%</span>
+                                    <span class="tendencia-desc" data-bind="tendencia_primaria_desc">Crecimiento</span>
+                                </div>
+                                <div class="tendencia-detalle" data-bind="tendencia_primaria_detalle"></div>
+                            </div>
+                        </div>
+
+                        <div class="tendencia-categoria">
+                            <div class="tendencia-header">
+                                <span class="tendencia-icon"><i class="fa-solid fa-book-open"></i></span>
+                                <h5>CN Secundaria</h5>
+                            </div>
+                            <div class="tendencia-content">
+                                <div class="tendencia-stats">
+                                    <span class="tendencia-valor" data-bind="tendencia_secundaria_valor">+0%</span>
+                                    <span class="tendencia-desc" data-bind="tendencia_secundaria_desc">Crecimiento</span>
+                                </div>
+                                <div class="tendencia-detalle" data-bind="tendencia_secundaria_detalle"></div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <div class="comparativa-tabla-container">
+                <h3 class="seccion-titulo"><i class="fa-solid fa-clipboard-list"></i> Comparativa de CN por Periodo</h3>
+                <div class="table-responsive">
+                    <table id="tabla-comparativa" class="comparativa-table">
+                        <thead>
+                            <tr>
+                                <th>CN por Periodo</th>
+                                <th>Período 1<br><small data-bind="periodo1_nombre">Periodo 1</small></th>
+                                <th>Período 2<br><small data-bind="periodo2_nombre">Periodo 2</small></th>
+                                <th>Diferencia</th>
+                                <th>Tendencia</th>
+                                <th>% Cambio</th>
+                            </tr>
+                        </thead>
+                        <tbody id="comparativa-tbody"></tbody>
+                    </table>
+                </div>
+            </div>
+
+            <div class="comparativa-estados-container">
+                <h3 class="seccion-titulo"><i class="fa-solid fa-landmark"></i> Comparativo por Estado</h3>
+                
+                <div class="estados-controls">
+                    <div class="search-estados">
+                        <input type="text" id="estados-search" placeholder="Buscar estado..." class="search-input">
+                    </div>
+                    <div class="estados-stats">
+                        <span id="estados-total">0 estados</span>
+                    </div>
+                </div>
+
+                <div class="table-responsive">
+                    <table id="tabla-estados-comparativa" class="estados-table">
+                        <thead>
+                            <tr>
+                                <th>Estado</th>
+                                <th>Plazas P1</th>
+                                <th>Plazas P2</th>
+                                <th>Cambio Plazas</th>
+                                <th>CN Inicial P1</th>
+                                <th>CN Inicial P2</th>
+                                <th>% Cambio</th>
+                                <th>CN Primaria P1</th>
+                                <th>CN Primaria P2</th>
+                                <th>% Cambio</th>
+                                <th>CN Secundaria P1</th>
+                                <th>CN Secundaria P2</th>
+                                <th>% Cambio</th>
+                                <th>CN Total P1</th>
+                                <th>CN Total P2</th>
+                                <th>% Cambio</th>
+                            </tr>
+                        </thead>
+                        <tbody id="estados-comparativa-tbody">
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+    </template>
+
+    <template id="tpl-fila-estado">
+        <tr class="estado-row" data-estado="{{estado}}">
+            <td class="estado-nombre" title="Haz clic para ver detalles">
+                <strong>{{estado}}</strong>
+            </td>
+            
+            <td>{{plazasP1}}</td>
+            <td>{{plazasP2}}</td>
+            <td class="{{claseCambioPlazas}}">{{cambioPlazas}}</td>
+            
+            <td>{{cnInicialP1}}</td>
+            <td>{{cnInicialP2}}</td>
+            <td class="{{cnInicialClaseCambio}}">{{cnInicialPorcentaje}}</td>
+            
+            <td>{{cnPrimariaP1}}</td>
+            <td>{{cnPrimariaP2}}</td>
+            <td class="{{cnPrimariaClaseCambio}}">{{cnPrimariaPorcentaje}}</td>
+            
+            <td>{{cnSecundariaP1}}</td>
+            <td>{{cnSecundariaP2}}</td>
+            <td class="{{cnSecundariaClaseCambio}}">{{cnSecundariaPorcentaje}}</td>
+            
+            <td>{{cnTotalP1}}</td>
+            <td>{{cnTotalP2}}</td>
+            <td class="{{cnTotalClaseCambio}}">{{cnTotalPorcentaje}}</td>
+        </tr>
+    </template>
+
+    <template id="tpl-estado-modal">
+        <div class="modal-estado-resumen">
+            <div class="resumen-cards-mini">
+                <div class="resumen-card-mini">
+                    <div class="resumen-icon-mini"><i class="fa-solid fa-building-columns"></i></div>
+                    <div class="resumen-content-mini">
+                        <span class="resumen-label-mini">Plazas Período 1</span>
+                        <span class="resumen-valor-mini">{{plazasP1}}</span>
+                    </div>
+                </div>
+
+                <div class="resumen-card-mini">
+                    <div class="resumen-icon-mini"><i class="fa-solid fa-building-columns"></i></div>
+                    <div class="resumen-content-mini">
+                        <span class="resumen-label-mini">Plazas Período 2</span>
+                        <span class="resumen-valor-mini">{{plazasP2}}</span>
+                    </div>
+                </div>
+
+                <div class="resumen-card-mini {{claseCambioPlazas}}">
+                    <div class="resumen-icon-mini"><i class="fa-solid fa-arrow-trend-up"></i></div>
+                    <div class="resumen-content-mini">
+                        <span class="resumen-label-mini">Cambio Neto</span>
+                        <span class="resumen-valor-mini">{{cambioPlazas}}</span>
+                        <span class="resumen-desc-mini">{{porcentajeCambioPlazas}}</span>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <div class="modal-estado-metricas">
+            <h4><i class="fa-solid fa-book"></i> Métricas CN - Comparativo Detallada</h4>
+            <div class="metricas-grid-modal">
+                {{metricasHTML}}
+            </div>
+        </div>
+
+        <div class="modal-estado-analisis">
+            <h4><i class="fa-solid fa-chart-line"></i> Análisis de Tendencia</h4>
+            <div class="analisis-content">
+                {{analisisHTML}}
+            </div>
+        </div>
+    </template>
+
+    <template id="tpl-metrica-modal">
+        <div class="metrica-modal-card {{claseCambio}}">
+            <div class="metrica-modal-header">
+                <span class="metrica-modal-icon">{{icono}}</span>
+                <span class="metrica-modal-nombre">{{nombre}}</span>
+            </div>
+            <div class="metrica-modal-valores">
+                <div class="metrica-modal-fila">
+                    <span>Período 1:</span>
+                    <strong>{{periodo1}}</strong>
+                </div>
+                <div class="metrica-modal-fila">
+                    <span>Período 2:</span>
+                    <strong>{{periodo2}}</strong>
+                </div>
+                <div class="metrica-modal-fila destacada">
+                    <span>Cambio:</span>
+                    <strong>{{cambio}}</strong>
+                </div>
+                <div class="metrica-modal-fila porcentaje">
+                    <span>% Cambio:</span>
+                    <strong>{{porcentaje}}</strong>
+                </div>
+            </div>
+        </div>
+    </template>
+
+    <template id="tpl-metrica-modal-vacia">
+        <div class="metrica-modal-card">
+            <div class="metrica-modal-header">
+                <span class="metrica-modal-icon">{{icono}}</span>
+                <span class="metrica-modal-nombre">{{nombre}}</span>
+            </div>
+            <div class="metrica-modal-valores">
+                <div class="metrica-modal-fila">
+                    <span>No disponible</span>
+                </div>
+            </div>
+        </div>
+    </template>
+
+    <template id="tpl-analisis-tendencia">
+        <ul class="analisis-lista">
+            {{itemsHTML}}
+        </ul>
+    </template>
+
+    <template id="tpl-analisis-item">
+        <li>
+            <strong>{{nombre}}</strong> {{tendencia}} un 
+            <span class="{{clase}}">
+                {{porcentaje}}%
+            </span>
+            ({{valor}})
+        </li>
+    </template>
+
+    <template id="tpl-no-datos-estados">
+        <tr>
+            <td colspan="16" class="no-data-message">
+                <div class="no-data-content">
+                    <span class="no-data-icon"><i class="fa-solid fa-chart-simple"></i></span>
+                    <h4>No hay datos disponibles por estado</h4>
+                    <p>La comparativa no incluye análisis desglosado por estado.</p>
+                </div>
+            </td>
+        </tr>
+    </template>
+
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js"></script>
+ <script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet.markercluster/1.5.3/leaflet.markercluster.js"></script>   
+<script type="module" src="{{ url_for('static', filename='js/main.js') }}"></script>
+<script type="module" src="{{ url_for('static', filename='js/mapa.js') }}"></script>
+<script type="module" src="{{ url_for('static', filename='js/comparativas.js') }}"></script>
+</body>
+</html>

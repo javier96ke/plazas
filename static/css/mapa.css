@@ -1,0 +1,1041 @@
+/* ========================================================= */
+/* 1. VARIABLES GLOBALES (Fácil configuración)               */
+/* ========================================================= */
+:root {
+    /* Paleta de Colores */
+    --primary-color:  #007bff;
+    --success-color:  #28a745;
+    --warning-color:  #ffc107;
+    --danger-color:   #dc3545;
+    --dark-color:     #343a40;
+    --light-color:    #f8f9fa;
+    --waze-color:     #33ccff;
+    --gmaps-color:    #34a853;
+
+    /* Capas Z-Index */
+    --z-map:            1;
+    --z-map-controls:   1000;
+    --z-search-results: 1001;
+    --z-modal-overlay:  9999;
+    --z-modal-top:      10000;
+
+    /* Panel GPS: por encima del mapa fixed (99999) y de los controles (10003) */
+    --z-gps-panel: 100010;
+}
+
+/* ========================================================= */
+/* 2. ESTILOS DEL MAPA                                       */
+/* ========================================================= */
+#map-view {
+    position: relative;
+}
+
+#map-view #map {
+    height: 80vh;
+    width: 100%;
+    min-height: 500px;
+    background-color: #e5e5e5;
+    border-radius: 12px;
+    position: relative;
+    z-index: var(--z-map);
+    box-shadow: 0 4px 6px rgba(0,0,0,0.1);
+    overflow: hidden;
+}
+
+/* ========================================================= */
+/* 3. BUSCADOR                                               */
+/* ========================================================= */
+#map-view .search-container {
+    background: rgba(255,255,255,0.95);
+    padding: 10px;
+    border-radius: 8px;
+    box-shadow: 0 4px 15px rgba(0,0,0,0.15);
+    width: 280px;
+    z-index: var(--z-map-controls);
+    position: relative;
+    margin-right: 10px;
+    backdrop-filter: blur(5px);
+}
+
+#map-view .search-container .search-input {
+    width: 100%;
+    padding: 10px 12px;
+    margin-bottom: 0;
+    border: 1px solid #ddd;
+    border-radius: 6px;
+    font-size: 14px;
+    box-sizing: border-box;
+    display: block;
+    transition: all 0.3s ease;
+}
+
+#map-view .search-container .search-input:focus {
+    outline: none;
+    border-color: var(--primary-color);
+    box-shadow: 0 0 0 3px rgba(0,123,255,0.15);
+}
+
+#map-view .search-results {
+    position: absolute;
+    top: calc(100% + 5px);
+    left: 0;
+    right: 0;
+    background: white;
+    border-radius: 6px;
+    box-shadow: 0 4px 20px rgba(0,0,0,0.15);
+    z-index: var(--z-search-results);
+    max-height: 250px;
+    overflow-y: auto;
+    border: 1px solid #eee;
+}
+
+#map-view .search-results::-webkit-scrollbar       { width: 6px; }
+#map-view .search-results::-webkit-scrollbar-track { background: #f1f1f1; }
+#map-view .search-results::-webkit-scrollbar-thumb { background: #ccc; border-radius: 3px; }
+#map-view .search-results::-webkit-scrollbar-thumb:hover { background: #aaa; }
+
+#map-view .search-result-item {
+    padding: 12px 15px;
+    border-bottom: 1px solid #f0f0f0;
+    cursor: pointer;
+    text-align: left;
+    color: #333;
+    font-size: 0.95rem;
+    transition: background 0.2s;
+}
+#map-view .search-result-item:last-child  { border-bottom: none; }
+#map-view .search-result-item:hover       { background-color: #f8f9fa; color: var(--primary-color); }
+#map-view .search-result-item strong      { color: var(--primary-color); }
+
+/* ========================================================= */
+/* 4. BOTONES Y CONTROLES DEL MAPA                           */
+/* ========================================================= */
+#map-view .btn-map-popup {
+    background-color: var(--primary-color);
+    color: white;
+    border: none;
+    padding: 8px 12px;
+    border-radius: 4px;
+    cursor: pointer;
+    font-size: 0.9rem;
+    margin-top: 6px;
+    width: 100%;
+    transition: all 0.2s;
+    font-weight: 500;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 6px;
+}
+#map-view .btn-map-popup:hover  { opacity: 0.9; transform: translateY(-1px); }
+#map-view .btn-map-popup:active { transform: translateY(0); }
+
+#map-view .btn-map-popup-gps     { background-color: var(--success-color); }
+#map-view .btn-map-popup-gmaps   { background-color: var(--gmaps-color); }
+#map-view .btn-map-popup-waze    { background-color: var(--waze-color); }
+#map-view .btn-map-popup-route   { background-color: #ff6b00; }
+#map-view .btn-map-popup-details { background-color: #6c757d; }
+#map-view .btn-map-popup-zoom    { background-color: var(--primary-color); }
+
+/* Controles flotantes */
+#map-view .leaflet-control-gps,
+#map-view .leaflet-control-gps-live,
+#map-view .leaflet-control-lock,
+#reset-map-button {
+    background: white;
+    padding: 8px 12px;
+    border-radius: 4px;
+    box-shadow: 0 1px 5px rgba(0,0,0,0.4);
+    cursor: pointer;
+    font-weight: bold;
+    color: #333;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    transition: all 0.2s;
+    border: 2px solid transparent;
+}
+
+#map-view .leaflet-control-gps:hover,
+#map-view .leaflet-control-gps-live:hover,
+#map-view .leaflet-control-lock:hover,
+#reset-map-button:hover { background: #f8f9fa; transform: scale(1.02); }
+
+#map-view .control-active {
+    border-color: var(--primary-color) !important;
+    background-color: #e7f1ff !important;
+    color: var(--primary-color) !important;
+}
+
+/* ========================================================= */
+/* 5. MODALES Y OVERLAYS                                     */
+/* ========================================================= */
+.gps-confirm-overlay,
+.maps-choice-overlay {
+    position: fixed;
+    top: 0; left: 0; right: 0; bottom: 0;
+    background: rgba(0,0,0,0.6);
+    backdrop-filter: blur(3px);
+    z-index: var(--z-modal-overlay);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    animation: fadeIn 0.3s ease-out;
+}
+
+.maps-choice-modal {
+    background: white;
+    padding: 25px;
+    border-radius: 12px;
+    box-shadow: 0 10px 40px rgba(0,0,0,0.3);
+    text-align: center;
+    min-width: 300px;
+    z-index: var(--z-modal-top);
+}
+
+.maps-choice-buttons {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 15px;
+    margin-top: 20px;
+}
+
+.maps-choice-btn {
+    padding: 15px;
+    border: none;
+    border-radius: 8px;
+    cursor: pointer;
+    font-weight: bold;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 8px;
+    transition: transform 0.2s;
+    font-size: 1rem;
+}
+.maps-choice-btn:hover { transform: translateY(-3px); box-shadow: 0 5px 15px rgba(0,0,0,0.1); }
+.maps-choice-gmaps { background: var(--gmaps-color); color: white; }
+.maps-choice-waze  { background: var(--waze-color);  color: white; }
+
+.gps-confirm-modal {
+    background: white;
+    padding: 30px;
+    border-radius: 12px;
+    box-shadow: 0 10px 40px rgba(0,0,0,0.3);
+    min-width: 320px;
+    max-width: 90%;
+    text-align: center;
+}
+
+.gps-confirm-buttons {
+    display: flex;
+    gap: 15px;
+    justify-content: center;
+    margin-top: 25px;
+}
+
+.gps-confirm-btn {
+    padding: 10px 25px;
+    border: none;
+    border-radius: 6px;
+    cursor: pointer;
+    font-weight: 600;
+    font-size: 1rem;
+}
+.gps-confirm-yes { background-color: var(--success-color); color: white; }
+.gps-confirm-no  { background-color: var(--light-color); color: #333; border: 1px solid #ddd; }
+
+/* ========================================================= */
+/* 6. PANEL GPS — ESCRITORIO                                 */
+/* ========================================================= */
+#gps-results-modal {
+    position: absolute;
+    top: 10px;
+    right: 10px;
+    width: 320px;
+    max-height: calc(100% - 20px);
+    overflow-y: auto;
+    background: white;
+    z-index: 2000;
+    border-radius: 8px;
+    box-shadow: -2px 0 15px rgba(0,0,0,0.1);
+    display: none;
+    animation: slideInRight 0.3s ease-out;
+    -webkit-overflow-scrolling: touch;
+    overscroll-behavior: contain;
+}
+
+#gps-results-modal::-webkit-scrollbar       { width: 4px; }
+#gps-results-modal::-webkit-scrollbar-track { background: #f5f5f5; }
+#gps-results-modal::-webkit-scrollbar-thumb { background: #ccc; border-radius: 2px; }
+
+/* Drag handle (solo visible en móvil, en escritorio no molesta) */
+.gps-drag-handle {
+    display: none; /* oculto en escritorio */
+}
+
+/* Header sticky del panel */
+.gps-header-sticky {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 16px 16px 12px;
+    border-bottom: 1px solid #f0f0f0;
+    background: white;
+}
+
+/* Body del panel */
+.gps-body {
+    padding: 0 16px 24px;
+}
+
+.gps-title {
+    margin: 0;
+    color: #333;
+    font-size: 16px;
+}
+
+.gps-accuracy {
+    display: block;
+    color: #888;
+    font-size: 12px;
+    margin-top: 2px;
+}
+
+.gps-location-info {
+    background: #e7f3ff;
+    padding: 10px 12px;
+    border-radius: 8px;
+    margin: 10px 0;
+    font-size: 13px;
+    display: flex;
+    flex-direction: column;
+    gap: 3px;
+}
+
+.gps-item {
+    border-bottom: 1px solid #f0f0f0;
+    padding: 16px 0;
+}
+.gps-item:last-child { border-bottom: none; }
+
+.gps-item-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 4px;
+}
+
+.gps-item-clave { font-size: 14px; font-weight: 600; }
+
+.gps-dist {
+    color: var(--success-color);
+    font-weight: bold;
+    font-size: 0.88em;
+    white-space: nowrap;
+}
+
+.gps-item-nombre {
+    font-size: 13px;
+    color: #555;
+    margin-bottom: 10px;
+    line-height: 1.4;
+}
+
+.gps-buttons-grid,
+.route-buttons-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 8px;
+    margin-top: 8px;
+}
+
+/* Botón X — escritorio */
+.btn-close-gps {
+    width: 36px;
+    height: 36px;
+    border-radius: 50%;
+    background: #f3f4f6;
+    border: none;
+    cursor: pointer;
+    font-size: 1.2em;
+    color: #374151;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    transition: background 0.2s, color 0.2s;
+    flex-shrink: 0;
+    padding: 0;
+}
+.btn-close-gps:hover { background: #e5e7eb; color: #111; }
+
+.gps-loading {
+    text-align: center;
+    padding: 30px 20px;
+    color: #555;
+    font-size: 15px;
+}
+
+.gps-error {
+    color: #dc3545;
+    padding: 15px;
+    text-align: center;
+    font-size: 14px;
+}
+
+.gps-no-results {
+    color: #666;
+    text-align: center;
+    padding: 20px 0;
+}
+
+/* ========================================================= */
+/* 7. ANIMACIONES                                            */
+/* ========================================================= */
+@keyframes pulse {
+    0%   { box-shadow: 0 0 0 0    rgba(0,123,255,0.7); }
+    70%  { box-shadow: 0 0 0 15px rgba(0,123,255,0);   }
+    100% { box-shadow: 0 0 0 0    rgba(0,123,255,0);   }
+}
+@keyframes fadeIn       { from { opacity: 0; }             to { opacity: 1; }           }
+@keyframes fadeInOut    { 0%,100% { opacity:0; } 10%,90% { opacity:1; }               }
+@keyframes slideUp      { from { transform: translateY(100%); } to { transform: translateY(0); } }
+@keyframes slideDown    { from { transform: translateY(0); opacity:1; } to { transform: translateY(100%); opacity:0; } }
+@keyframes slideInRight { from { transform: translateX(100%); opacity:0; } to { transform: translateX(0); opacity:1; } }
+@keyframes spin         { to { transform: rotate(360deg); } }
+
+#gps-results-modal.closing {
+    animation: slideDown 0.28s cubic-bezier(0.32,0.72,0,1) forwards !important;
+}
+
+/* ========================================================= */
+/* 8. CLUSTERS                                               */
+/* ========================================================= */
+.marker-cluster-small  { background-color: rgba(181,226,140,0.6); }
+.marker-cluster-medium { background-color: rgba(241,211,87, 0.6); }
+.marker-cluster-large  { background-color: rgba(253,156,115,0.6); }
+
+.marker-cluster-small div,
+.marker-cluster-medium div,
+.marker-cluster-large div {
+    width: 30px; height: 30px;
+    margin: 5px;
+    text-align: center;
+    border-radius: 50%;
+    font: bold 12px "Helvetica Neue", Arial, Helvetica, sans-serif;
+    color: #333;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background-color: rgba(255,255,255,0.85);
+    box-shadow: 0 2px 5px rgba(0,0,0,0.2);
+}
+
+/* ========================================================= */
+/* 9. POPUPS LEAFLET                                         */
+/* ========================================================= */
+.leaflet-popup-content-wrapper {
+    border-radius: 8px;
+    box-shadow: 0 3px 14px rgba(0,0,0,0.4);
+}
+.leaflet-popup-content { margin: 15px; line-height: 1.5; }
+
+/* ========================================================= */
+/* 10. COMPONENTES DE POPUPS                                 */
+/* ========================================================= */
+.popup-container { font-family: Arial, sans-serif; background: white; }
+
+.popup-header {
+    padding: 12px 15px 8px;
+    background: linear-gradient(135deg, #007bff, #0056b3);
+    color: white;
+}
+.popup-header h4  { margin: 0; font-size: 16px; font-weight: bold; }
+.popup-subtitle   { font-size: 12px; opacity: 0.9; margin-top: 3px; }
+.popup-content    { padding: 15px; }
+.popup-nombre     { margin: 0 0 10px 0; font-size: 14px; line-height: 1.4; }
+.popup-situacion  { margin: 0 0 15px 0; color: #666; font-size: 12px; }
+.popup-actions    { display: grid; gap: 8px; }
+.popup-icon       { font-size: 16px; }
+.popup-text       { flex: 1; }
+
+.popup-buttons-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 8px;
+    margin-top: 5px;
+}
+
+.popup-container.mobile .popup-header     { padding: 10px; }
+.popup-container.mobile .popup-nombre-mobile { margin: 5px 0; font-size: 13px; }
+.popup-container.mobile .popup-location   { margin: 0; font-size: 12px; color: rgba(255,255,255,0.8); }
+.popup-container.mobile .popup-content    { padding: 10px; }
+
+/* ========================================================= */
+/* 11. RESULTADOS DE BÚSQUEDA                               */
+/* ========================================================= */
+.search-result-item {
+    padding: 10px;
+    border-bottom: 1px solid #eee;
+    cursor: pointer;
+    transition: background-color 0.2s;
+    display: flex;
+    align-items: flex-start;
+    gap: 10px;
+    width: 100%;
+    background: none;
+    border-left: none;
+    border-right: none;
+    border-top: none;
+    text-align: left;
+}
+.search-result-item:hover  { background: #f8f9fa; }
+.search-result-icon        { font-size: 18px; margin-top: 2px; }
+.search-result-content     { flex: 1; }
+.search-result-clave       { font-size: 14px; margin-bottom: 2px; }
+.search-result-nombre      { font-size: 13px; color: #666; margin-bottom: 2px; }
+.search-result-ubicacion   { font-size: 12px; color: #888; }
+.search-no-results         { padding: 15px; color: #666; text-align: center; }
+.search-no-results-icon    { font-size: 1.5em; margin-bottom: 10px; }
+
+/* ========================================================= */
+/* 12. NOTIFICACIONES                                        */
+/* ========================================================= */
+.notification {
+    position: fixed;
+    bottom: 20px;
+    left: 20px;
+    background: var(--success-color);
+    color: white;
+    border-radius: 8px;
+    padding: 12px 15px;
+    z-index: 100005;
+    max-width: 300px;
+    box-shadow: 0 4px 12px rgba(0,0,0,0.15);
+    animation: slideUp 0.3s ease-out;
+    display: flex;
+    align-items: center;
+    gap: 10px;
+}
+.notification-error   { background: var(--danger-color); }
+.notification-warning { background: var(--warning-color); color: #333; }
+.notification-icon    { font-size: 1.4em; flex-shrink: 0; }
+.notification-text    { flex: 1; font-size: 14px; line-height: 1.3; }
+.notification-close {
+    margin-left: auto;
+    background: none;
+    border: none;
+    font-size: 1.2em;
+    cursor: pointer;
+    color: inherit;
+    opacity: 0.7;
+    flex-shrink: 0;
+}
+.notification-close:hover { opacity: 1; }
+
+/* ========================================================= */
+/* 13. NOTIFICACIÓN DE RUTA                                  */
+/* ========================================================= */
+.route-notification {
+    position: fixed;
+    bottom: 20px;
+    right: 20px;
+    background: #fff3cd;
+    border: 1px solid #ffc107;
+    border-radius: 8px;
+    padding: 15px;
+    z-index: 100005;
+    max-width: 300px;
+    box-shadow: 0 4px 12px rgba(0,0,0,0.15);
+    animation: slideUp 0.3s ease-out;
+}
+.route-notification-content { display: flex; align-items: flex-start; gap: 10px; }
+.route-notification-icon    { font-size: 1.5em; }
+.route-notification-text    { flex: 1; font-size: 13px; line-height: 1.4; }
+.route-notification-close {
+    position: absolute;
+    top: 5px; right: 5px;
+    background: none; border: none;
+    font-size: 1.2em; cursor: pointer; color: #666;
+}
+
+/* Loader de ruta */
+.route-loader-overlay {
+    position: fixed;
+    inset: 0;
+    background: rgba(0,0,0,0.6);
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    z-index: 100020;
+    color: white;
+    gap: 15px;
+}
+.route-spinner {
+    width: 48px; height: 48px;
+    border: 4px solid rgba(255,255,255,0.3);
+    border-top-color: white;
+    border-radius: 50%;
+    animation: spin 0.8s linear infinite;
+}
+
+/* ========================================================= */
+/* 14. MODAL MAPS (Waze / Google)                            */
+/* ========================================================= */
+.maps-choice-icon   { font-size: 1.5em; }
+.maps-choice-text   { margin-top: 5px; font-size: 14px; }
+.maps-choice-cancel {
+    margin-top: 15px;
+    padding: 8px 15px;
+    background: #6c757d;
+    color: white;
+    border: none;
+    border-radius: 4px;
+    cursor: pointer;
+    width: 100%;
+    font-size: 14px;
+}
+
+/* ========================================================= */
+/* 15. MARCADORES DE USUARIO                                 */
+/* ========================================================= */
+.user-location-popup { text-align: center; }
+
+.user-location-pulse {
+    background: var(--primary-color);
+    width: 20px; height: 20px;
+    border-radius: 50%;
+    border: 3px solid white;
+    box-shadow: 0 0 10px rgba(0,0,0,0.5);
+    animation: pulse 1.5s infinite;
+}
+
+.user-location-dot {
+    background: var(--primary-color);
+    width: 16px; height: 16px;
+    border-radius: 50%;
+    border: 3px solid white;
+    box-shadow: 0 0 5px rgba(0,0,0,0.5);
+}
+
+.plaza-marker-dot {
+    background: var(--danger-color);
+    width: 12px; height: 12px;
+    border-radius: 50%;
+    border: 2px solid white;
+    box-shadow: 0 0 8px rgba(0,0,0,0.5);
+    cursor: pointer;
+}
+
+/* ========================================================= */
+/* 16. PIN MODERNO                                           */
+/* ========================================================= */
+.custom-pin-container { background: transparent; border: none; }
+
+.modern-pin {
+    width: 40px; height: 40px;
+    background: var(--danger-color);
+    border-radius: 50% 50% 50% 0;
+    transform: rotate(-45deg);
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    border: 3px solid white;
+    box-shadow: 0 4px 10px rgba(0,0,0,0.3);
+    position: relative;
+    z-index: 2;
+    transition: transform 0.2s ease, background 0.2s ease;
+}
+.modern-pin .pin-icon { transform: rotate(45deg); font-size: 20px; line-height: 1; }
+
+.custom-pin-container:hover .modern-pin {
+    transform: rotate(-45deg) scale(1.1);
+    background: #c82333;
+    cursor: pointer;
+}
+
+.pin-shadow {
+    width: 20px; height: 6px;
+    background: rgba(0,0,0,0.3);
+    border-radius: 50%;
+    position: absolute;
+    bottom: 0; left: 10px;
+    z-index: 1;
+    filter: blur(2px);
+}
+
+/* ========================================================= */
+/* 17. MISCELÁNEA                                            */
+/* ========================================================= */
+.lock-hint {
+    position: absolute;
+    top: 10px; left: 50%;
+    transform: translateX(-50%);
+    background: rgba(0,0,0,0.8);
+    color: white;
+    padding: 8px 15px;
+    border-radius: 20px;
+    font-size: 0.9em;
+    z-index: 1000;
+    animation: fadeInOut 3s forwards;
+}
+
+.filtro-estado-select {
+    padding: 6px 10px;
+    border-radius: 4px;
+    border: 1px solid #ddd;
+    box-shadow: 0 1px 3px rgba(0,0,0,0.1);
+    font-size: 14px;
+    min-width: 150px;
+}
+
+/* ========================================================= */
+/* 18. RESPONSIVE — MÓVILES (max-width: 768px)               */
+/* ========================================================= */
+@media (max-width: 768px) {
+
+    /* ── Mapa: pantalla completa ── */
+    #map-view {
+        position: fixed !important;
+        top: 0; left: 0; right: 0; bottom: 0;
+        width: 100vw; height: 100vh;
+        z-index: 99999;
+        background: white;
+        display: flex !important;
+        flex-direction: column;
+    }
+    #map-view.hidden { display: none !important; z-index: -1; }
+
+    #map-view h1 {
+        flex: 0 0 auto;
+        padding: 10px 15px;
+        margin: 0;
+        font-size: 16px;
+        z-index: 10002;
+        background: white;
+        box-shadow: 0 2px 5px rgba(0,0,0,0.1);
+        position: relative;
+    }
+
+    #map-container { flex: 1; position: relative; width: 100%; }
+    #map-view #map { width: 100% !important; height: 100% !important; border-radius: 0; }
+
+    /* ── Leaflet: no bloquear clicks ── */
+    #map-view .leaflet-control-container,
+    #map-view .leaflet-top,
+    #map-view .leaflet-bottom,
+    #map-view .leaflet-left,
+    #map-view .leaflet-right {
+        position: absolute;
+        width: 100%; height: 100%;
+        pointer-events: none;
+        z-index: 10000;
+        margin: 0 !important; padding: 0 !important;
+    }
+
+    #map-view .leaflet-control-zoom,
+    #map-view .leaflet-control-attribution { display: none !important; }
+
+    #map-view .search-container,
+    #map-view .leaflet-control-gps,
+    #map-view .leaflet-control-gps-live,
+    #map-view .leaflet-control-lock,
+    #map-view #reset-map-button,
+    #map-view #filtro-estado { pointer-events: auto !important; }
+
+    /* ── Buscador ── */
+    #map-view .search-container {
+        position: fixed !important;
+        top: 65px !important;
+        left: 50% !important;
+        transform: translateX(-50%) !important;
+        width: 94% !important;
+        max-width: none !important;
+        margin: 0 !important;
+        padding: 0 !important;
+        background: white !important;
+        box-shadow: 0 4px 15px rgba(0,0,0,0.15) !important;
+        border-radius: 8px !important;
+        z-index: 10005 !important;
+        display: flex !important;
+        align-items: center;
+    }
+
+    #map-view #map-search-input {
+        height: 45px !important;
+        border: none !important;
+        font-size: 16px !important;
+        padding-left: 15px !important;
+        border-radius: 8px !important;
+        width: 100% !important;
+    }
+
+    #map-view .search-results {
+        position: absolute;
+        top: 100% !important;
+        width: 100% !important;
+        border-radius: 0 0 8px 8px !important;
+        box-shadow: 0 6px 20px rgba(0,0,0,0.2) !important;
+        max-height: 40vh !important;
+        z-index: 10006 !important;
+    }
+
+    /* ── Filtro de estado ── */
+    #map-view .custom-filter-container,
+    #map-view .leaflet-bar:has(#filtro-estado) {
+        position: fixed !important;
+        top: 110px !important;
+        left: 50% !important;
+        transform: translateX(-50%) !important;
+        margin: 0 !important;
+        z-index: 10004 !important;
+        background: transparent !important;
+        border: none !important;
+        box-shadow: none !important;
+    }
+
+    #map-view #filtro-estado {
+        background: rgba(255,255,255,0.95) !important;
+        border-radius: 20px !important;
+        padding: 5px 15px !important;
+        box-shadow: 0 2px 8px rgba(0,0,0,0.2) !important;
+        border: 1px solid #ccc !important;
+        height: 35px !important;
+        font-size: 13px !important;
+        backdrop-filter: blur(4px);
+    }
+
+    /* ── Botones de acción: columna fija derecha ── */
+    #map-view .leaflet-control-gps-live,
+    #map-view .leaflet-control-gps,
+    #map-view #reset-map-button,
+    #map-view .leaflet-control-lock {
+        position: fixed !important;
+        right: 12px !important;
+        left: auto !important;
+        top: auto !important;
+        width: 50px !important;
+        height: 50px !important;
+        border-radius: 50% !important;
+        background: white !important;
+        box-shadow: 0 4px 12px rgba(0,0,0,0.25) !important;
+        border: none !important;
+        display: flex !important;
+        justify-content: center !important;
+        align-items: center !important;
+        z-index: 10003 !important;
+        margin: 0 !important;
+        padding: 0 !important;
+    }
+
+    #map-view .leaflet-control-gps-live { bottom: 25px !important; }
+    #map-view .leaflet-control-gps      { bottom: 85px !important; }
+    #map-view #reset-map-button         { bottom: 145px !important; }
+    #map-view .leaflet-control-lock     { bottom: 205px !important; }
+
+    #map-view .leaflet-control-gps-live span:first-child,
+    #map-view .leaflet-control-gps span:first-child,
+    #map-view #reset-map-button span:first-child,
+    #map-view .leaflet-control-lock span:first-child {
+        font-size: 24px !important;
+        margin: 0 !important;
+        display: block !important;
+        line-height: 1 !important;
+    }
+
+    #map-view .gps-text,
+    #map-view .reset-text,
+    #map-view .lock-text,
+    #map-view .leaflet-control-gps-live span:nth-child(2),
+    #map-view .leaflet-control-gps span:nth-child(2),
+    #map-view #reset-map-button span:nth-child(2),
+    #map-view .leaflet-control-lock span:nth-child(2) { display: none !important; }
+
+    /* ============================================================ */
+    /* PANEL GPS — BOTTOM-SHEET MÓVIL                               */
+    /*                                                              */
+    /* CAMBIOS vs versión anterior:                                 */
+    /* · max-height 85vh (antes 72vh) → cabe mejor la lista        */
+    /* · gps-drag-handle visible: zona de arrastre real             */
+    /* · gps-header-sticky: título + X siempre visibles al scroll   */
+    /* · gps-body: contenido scrollable con padding correcto        */
+    /* · btn-map-popup min-height 52px → más fácil de tocar        */
+    /* · sin history.pushState → botón "atrás" ya no interfiere    */
+    /* ============================================================ */
+    #gps-results-modal {
+        position: fixed !important;
+        top: auto !important;
+        right: 0 !important;
+        bottom: 0 !important;
+        left: 0 !important;
+        width: 100% !important;
+
+        /* Más alto que antes (72vh → 85vh) para ver 5 plazas cómodamente */
+        max-height: 85vh !important;
+
+        border-radius: 20px 20px 0 0 !important;
+        box-shadow: 0 -6px 30px rgba(0,0,0,0.22) !important;
+        padding: 0 !important;                          /* el padding lo manejan los hijos */
+        padding-bottom: env(safe-area-inset-bottom) !important; /* notch iPhone */
+
+        background: #ffffff !important;
+        animation: slideUp 0.35s cubic-bezier(0.32,0.72,0,1) !important;
+
+        /* z-index encima del mapa fixed (99999) */
+        z-index: var(--z-gps-panel) !important;
+
+        /* Scroll interno nativo */
+        overflow-y: auto !important;
+        -webkit-overflow-scrolling: touch !important;
+        overscroll-behavior: contain !important;
+
+        /* Solo pan vertical — Leaflet no captura los touches */
+        touch-action: pan-y !important;
+    }
+
+    /* ── Drag handle: barra visible en la parte superior ── */
+    .gps-drag-handle {
+        display: block !important;             /* visible solo en móvil */
+        width: 44px;
+        height: 5px;
+        background: #d1d5db;
+        border-radius: 3px;
+        margin: 14px auto 6px;
+        flex-shrink: 0;
+        pointer-events: none;                  /* el touchstart se captura en el elemento padre handle */
+        cursor: grab;
+    }
+
+    /* Área táctil generosa para el drag (cubre handle + espacio alrededor) */
+    #gps-results-modal .gps-drag-handle {
+        pointer-events: auto !important;       /* el JS escucha touchstart aquí */
+        touch-action: none !important;         /* evita que el browser interfiera durante el drag */
+        height: 32px !important;              /* área táctil grande */
+        margin-top: 0 !important;
+        display: flex !important;
+        align-items: center;
+        justify-content: center;
+    }
+
+    /* El ::before simula la barrita dentro del área táctil */
+    #gps-results-modal .gps-drag-handle::before {
+        content: '';
+        display: block;
+        width: 44px;
+        height: 5px;
+        background: #d1d5db;
+        border-radius: 3px;
+    }
+
+    /* ── Header sticky ── */
+    #gps-results-modal .gps-header-sticky {
+        position: sticky !important;
+        top: 0 !important;
+        background: white !important;
+        z-index: 2 !important;
+        padding: 8px 16px 12px !important;
+        border-bottom: 1px solid #f0f0f0 !important;
+        display: flex !important;
+        align-items: center !important;
+        justify-content: space-between !important;
+    }
+
+    /* ── Cuerpo scrollable ── */
+    #gps-results-modal .gps-body {
+        padding: 0 16px 32px !important;
+    }
+
+    /* ── Botón X: grande y fácil de tocar ── */
+    #gps-results-modal .btn-close-gps {
+        position: static !important;
+        float: none !important;
+        width: 44px !important;
+        height: 44px !important;
+        border-radius: 50% !important;
+        background: #f3f4f6 !important;
+        color: #374151 !important;
+        font-size: 1.3em !important;
+        display: flex !important;
+        align-items: center !important;
+        justify-content: center !important;
+        padding: 0 !important;
+        flex-shrink: 0 !important;
+        border: none !important;
+        /* Área táctil mínima 44px × 44px — cumple guía Apple/Google */
+    }
+
+    /* ── Cada plaza: más padding para separar visualmente ── */
+    #gps-results-modal .gps-item {
+        padding: 18px 0 !important;
+        border-bottom: 1px solid #f0f0f0 !important;
+    }
+    #gps-results-modal .gps-item:last-child { border-bottom: none !important; }
+
+    /* ── Botones táctiles: mínimo 52px ── */
+    #gps-results-modal .btn-map-popup {
+        min-height: 52px !important;
+        font-size: 14px !important;
+        font-weight: 600 !important;
+        padding: 10px 8px !important;
+        border-radius: 10px !important;
+    }
+
+    /* ── Grids de botones con más espacio ── */
+    #gps-results-modal .gps-buttons-grid,
+    #gps-results-modal .route-buttons-grid {
+        gap: 10px !important;
+        margin-top: 10px !important;
+    }
+
+    /* ── Info de precisión ── */
+    #gps-results-modal .gps-location-info {
+        margin: 10px 0 !important;
+        padding: 10px 12px !important;
+        border-radius: 8px !important;
+        font-size: 13px !important;
+    }
+
+    /* ── Modales encima del panel GPS ── */
+    .gps-confirm-overlay,
+    .maps-choice-overlay {
+        z-index: 100015 !important;
+    }
+
+    /* ── Notificaciones: no tapar el panel ── */
+    .notification {
+        bottom: 88vh;
+        left: 10px;
+        max-width: 260px;
+        font-size: 13px;
+    }
+
+    /* ── Popup Leaflet más estrecho en móvil ── */
+    .leaflet-popup-content-wrapper { max-width: 260px; }
+    .leaflet-popup-content         { margin: 10px; }
+    .popup-buttons-grid            { grid-template-columns: 1fr 1fr; gap: 6px; }
+}
+
+/* ========================================================= */
+/* 19. MÓVILES MUY PEQUEÑOS (max-width: 380px)               */
+/* ========================================================= */
+@media (max-width: 380px) {
+    #gps-results-modal { max-height: 90vh !important; }
+
+    #map-view .search-container { width: 96% !important; }
+
+    #map-view .leaflet-control-gps-live { bottom: 20px  !important; right: 8px !important; }
+    #map-view .leaflet-control-gps      { bottom: 78px  !important; right: 8px !important; }
+    #map-view #reset-map-button         { bottom: 136px !important; right: 8px !important; }
+    #map-view .leaflet-control-lock     { bottom: 194px !important; right: 8px !important; }
+
+    #map-view .leaflet-control-gps-live,
+    #map-view .leaflet-control-gps,
+    #map-view #reset-map-button,
+    #map-view .leaflet-control-lock {
+        width: 44px !important;
+        height: 44px !important;
+    }
+
+    #gps-results-modal .btn-map-popup { font-size: 13px !important; min-height: 48px !important; }
+}

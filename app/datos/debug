@@ -1,0 +1,135 @@
+"""
+debug_cn_sec.py — Diagnóstico de CN_Sec_Acum en toda la cadena.
+Ejecutar desde el directorio raíz de la app:
+    python debug_cn_sec.py
+"""
+import sys, os
+import pandas as pd
+
+PARQUET = "datos/datos_plazas.parquet"
+
+def separador(titulo):
+    print(f"\n{'='*60}")
+    print(f"  {titulo}")
+    print('='*60)
+
+# ─── 1. Parquet crudo ────────────────────────────────────────────
+separador("1. PARQUET CRUDO — columnas y muestra de CN_Sec_Acum")
+if not os.path.exists(PARQUET):
+    print(f"❌ No encontrado: {PARQUET}")
+    sys.exit(1)
+
+df_raw = pd.read_parquet(PARQUET)
+print(f"Filas: {len(df_raw):,}  Columnas: {len(df_raw.columns)}")
+print(f"Columnas disponibles:\n  {sorted(df_raw.columns.tolist())}")
+
+# Buscar variantes de cn_sec
+candidatos = [c for c in df_raw.columns if 'sec' in c.lower() or 'cn_s' in c.lower()]
+print(f"\nColumnas con 'sec' o 'cn_s': {candidatos}")
+
+for col in candidatos:
+    serie = pd.to_numeric(df_raw[col], errors='coerce')
+    nulos = serie.isna().sum()
+    suma  = serie.sum()
+    nozero = (serie > 0).sum()
+    print(f"  '{col}': suma={suma:,.0f}  nulos={nulos}  valores>0={nozero}")
+
+# ─── 2. Después del translator ──────────────────────────────────
+separador("2. DESPUÉS DE column_translator.translate()")
+try:
+    from translator import translator
+    df_t = translator.translate(df_raw.copy())
+    print(f"Columnas tras traducción:\n  {sorted(df_t.columns.tolist())}")
+
+    if "CN_Sec_Acum" in df_t.columns:
+        serie = pd.to_numeric(df_t["CN_Sec_Acum"], errors='coerce')
+        print(f"\nCN_Sec_Acum tras traducción:")
+        print(f"  suma={serie.sum():,.0f}  nulos={serie.isna().sum()}  valores>0={(serie>0).sum()}")
+        print(f"  muestra: {serie.dropna().head(10).tolist()}")
+    else:
+        print("❌ CN_Sec_Acum NO está en el DF traducido")
+        # Buscar alternativas
+        cands = [c for c in df_t.columns if 'sec' in c.lower()]
+        print(f"   Columnas con 'sec': {cands}")
+except ImportError as e:
+    print(f"⚠️  translator no disponible: {e}")
+    df_t = df_raw.copy()
+
+# ─── 3. Verificar columnas de agrupación ────────────────────────
+separador("3. COLUMNAS PARA RUST / COMPARATIVAS")
+COLS_RUST = [
+    "Latitud", "Longitud", "Clave_Edo",
+    "Situación", "Situacion",
+    "Inc_Total", "Aten_Total",
+    "CN_Tot_Acum", "CN_Inicial_Acum", "CN_Prim_Acum", "CN_Sec_Acum",
+]
+for col in COLS_RUST:
+    presente = col in df_t.columns
+    if presente:
+        serie = pd.to_numeric(df_t[col], errors='coerce')
+        print(f"  ✅ '{col}': suma={serie.sum():,.0f}  nulos={serie.isna().sum()}")
+    else:
+        print(f"  ❌ '{col}': AUSENTE")
+
+# ─── 4. Agrupación pandas simulada (como en comparativas_engine) ─
+separador("4. AGRUPACIÓN POR ESTADO (simulando _agrupar_pandas)")
+col_e = next((c for c in ["Clave_Edo","clave_edo"] if c in df_t.columns), None)
+if col_e is None:
+    print("❌ Clave_Edo no encontrada")
+else:
+    col_sec = next((c for c in ["CN_Sec_Acum"] if c in df_t.columns), None)
+    if col_sec is None:
+        print("❌ CN_Sec_Acum no encontrada para agrupación")
+    else:
+        agr = df_t.groupby(col_e)[col_sec].apply(
+            lambda s: pd.to_numeric(s, errors='coerce').fillna(0).sum()
+        )
+        print(f"Suma total CN_Sec_Acum por estado:")
+        for eid, val in agr.sort_values(ascending=False).head(10).items():
+            estado = df_t[df_t[col_e]==eid]['Estado'].iloc[0] if 'Estado' in df_t.columns else eid
+            print(f"  {estado}: {val:,.0f}")
+        total = agr.sum()
+        print(f"\n  TOTAL: {total:,.0f}")
+        if total == 0:
+            print("  ⚠️  TOTAL = 0 — CN_Sec_Acum no tiene datos reales")
+
+# ─── 5. Verificar _RENAME_MAP del translator ────────────────────
+separador("5. RENAME_MAP del translator")
+try:
+    from translator import _RENAME_MAP
+    # Buscar qué mapea a CN_Sec_Acum
+    for k, v in _RENAME_MAP.items():
+        if 'sec' in k.lower() or 'sec' in v.lower():
+            print(f"  '{k}' → '{v}'")
+    # Verificar que cn_sec esté como origen
+    if 'cn_sec' in _RENAME_MAP:
+        print(f"\n  ✅ 'cn_sec' mapeado a '{_RENAME_MAP['cn_sec']}'")
+        if 'cn_sec' in df_raw.columns:
+            serie = pd.to_numeric(df_raw['cn_sec'], errors='coerce')
+            print(f"     En parquet crudo: suma={serie.sum():,.0f}  nulos={serie.isna().sum()}")
+        else:
+            print(f"  ❌ 'cn_sec' NO existe en el parquet crudo")
+    else:
+        print("  ❌ 'cn_sec' NO está en _RENAME_MAP")
+except ImportError:
+    print("  ⚠️  translator no disponible")
+
+# ─── 6. Verificar años/meses disponibles ────────────────────────
+separador("6. PERIODOS DISPONIBLES (Año × Mes)")
+col_anio = next((c for c in ["Año","anio"] if c in df_t.columns), None)
+col_mes  = next((c for c in ["Cve-mes","cve_mes"] if c in df_t.columns), None)
+if col_anio and col_mes:
+    grupos = df_t.groupby([col_anio, col_mes]).size()
+    print(f"Periodos encontrados ({len(grupos)}):")
+    for (a, m), n in sorted(grupos.items()):
+        col_sec = "CN_Sec_Acum" if "CN_Sec_Acum" in df_t.columns else None
+        if col_sec:
+            mask = (df_t[col_anio]==a) & (df_t[col_mes]==m)
+            suma_sec = pd.to_numeric(df_t.loc[mask, col_sec], errors='coerce').sum()
+            print(f"  {int(a)}-{int(m):02d}: {n:,} filas | CN_Sec_Acum={suma_sec:,.0f}")
+        else:
+            print(f"  {int(a)}-{int(m):02d}: {n:,} filas")
+else:
+    print(f"  col_anio={col_anio}  col_mes={col_mes}")
+
+print("\n✅ Diagnóstico completo.")

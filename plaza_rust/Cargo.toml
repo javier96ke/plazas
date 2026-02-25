@@ -1,0 +1,24 @@
+[package]
+name    = "plaza_rust"
+version = "0.5.0"
+edition = "2021"
+
+[lib]
+name       = "plaza_rust"
+crate-type = ["cdylib"]
+
+[dependencies]
+pyo3    = { version = "0.21", features = ["extension-module"] }
+rayon   = "1.10"
+parquet = { version = "50", default-features = false, features = ["arrow"] }
+arrow-array  = { version = "50", default-features = false }
+arrow-schema = { version = "50", default-features = false }
+bytes   = "1"
+flate2  = "1.0"
+zstd    = "0.13"
+
+[profile.release]
+opt-level     = 3
+lto           = true
+codegen-units = 1
+panic         = "abort"

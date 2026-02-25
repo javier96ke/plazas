@@ -1,0 +1,98 @@
+# =========================
+# PYTHON
+# =========================
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+*.pyc
+*.so
+*.egg
+*.egg-info/
+dist/
+build/
+
+# =========================
+# VIRTUAL ENV
+# =========================
+venv/
+.env/
+.env.*
+.venv/
+
+# =========================
+# FLASK
+# =========================
+instance/
+*.db
+*.sqlite3
+flask_session/
+
+# =========================
+# LOGS
+# =========================
+*.log
+logs/
+app.log
+
+# =========================
+# CREDENTIALS / SECRETS
+# =========================
+credentials.json
+client_secret.json
+token.json
+*.pem
+*.key
+*.crt
+
+# =========================
+# DATA / TEMP FILES
+# =========================
+*.xlsx 
+*.csv
+*.tmp
+*.bak
+
+# =========================
+# CACHE / SYNC
+# =========================
+ drive_tree.json         
+ excel_tree_real.json     
+ excel_tree_auto_sync.json 
+
+# =========================
+# NODE / FRONTEND (por si acaso)
+# =========================
+node_modules/
+npm-debug.log*
+yarn-error.log*
+
+# =========================
+# OS FILES
+# =========================
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# =========================
+# EDITORS / IDEs
+# =========================
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# =========================
+# GIT
+# =========================
+*.orig
+
+# =========================
+# RUST / PLAZA_RUST
+# =========================
+**/target/
+plaza_rust/target/
+*.pdb
+*.dll
+*.lib
+*.exp
